@@ -1,0 +1,10 @@
+/cluster-a-control-plane.yaml
+/cluster-a-md-0.yaml
+/cluster-a-md-1.yaml
+/cluster.yaml
+/deploy-gpu.sh
+/gpuOverride.yaml
+/gpuRegOverride.yaml
+/pkd.exe
+/pp.yaml
+/registryOverride.yaml
