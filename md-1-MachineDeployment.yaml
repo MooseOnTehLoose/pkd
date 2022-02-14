@@ -1,0 +1,39 @@
+apiVersion: cluster.x-k8s.io/v1alpha4
+kind: MachineDeployment
+metadata:
+    labels:
+        cluster.x-k8s.io/cluster-name: cluster-a
+    name: cluster-a-md-1
+    namespace: default
+spec:
+    clusterName: cluster-a
+    minReadySeconds: 0
+    progressDeadlineSeconds: 600
+    replicas: 2
+    revisionHistoryLimit: 1
+    selector:
+        matchLabels:
+            cluster.x-k8s.io/cluster-name: cluster-a
+            cluster.x-k8s.io/deployment-name: cluster-a-md-1
+    strategy:
+        rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+        type: RollingUpdate
+    template:
+        metadata:
+            labels:
+                cluster.x-k8s.io/cluster-name: cluster-a
+                cluster.x-k8s.io/deployment-name: cluster-a-md-1
+        spec:
+            bootstrap:
+                configRef:
+                    apiVersion: bootstrap.cluster.x-k8s.io/v1alpha4
+                    kind: KubeadmConfigTemplate
+                    name: cluster-a-md-1
+            clusterName: cluster-a
+            infrastructureRef:
+                apiVersion: infrastructure.cluster.konvoy.d2iq.io/v1alpha1
+                kind: PreprovisionedMachineTemplate
+                name: cluster-a-md-1
+            version: v1.21.6
