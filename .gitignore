@@ -8,3 +8,6 @@
 /pkd.exe
 /pp.yaml
 /registryOverride.yaml
+/md-*-KubeadmConfigTemplate.yaml
+/md-*-MachineDeployment.yaml
+/md-*-PreprovisionedMachineTemplate.yaml
