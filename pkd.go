@@ -288,7 +288,7 @@ func up() {
 	applyPPI(cluster.MetaData.Name)
 	fmt.Printf("Applied all PPI\n")
 
-	//Generate the cluster.yaml
+	//Generate the cluster.yaml dry run output
 	fmt.Printf(cluster.MetaData.Name + " \n" + cluster.Controlplane.Loadbalancer + " \n" + cluster.MetaData.InterfaceName + " \n")
 	dkpDryRun(cluster.MetaData.Name, cluster.Controlplane.Loadbalancer, cluster.MetaData.InterfaceName)
 	fmt.Printf("Dry Run Completed\n")
@@ -362,15 +362,15 @@ func up() {
 		pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
 		switch {
 		case nodes.Flags["registry"] && nodes.Flags["gpu"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-gpuRegOverride"
+			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-registry-override"
 			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 			flagEnabled["registryGPU"] = true
 		case nodes.Flags["registry"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-registryOverride"
+			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-registry-override"
 			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 			flagEnabled["registry"] = true
 		case nodes.Flags["gpu"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-gpuOverride"
+			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-override"
 			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 			flagEnabled["gpu"] = true
 
@@ -450,7 +450,7 @@ func up() {
 	fmt.Printf("Generated all Custom Resources for NodePools\n")
 
 	//creates all override files for KIB
-	genOverride(cluster.Registry, flagEnabled)
+	genOverride(cluster.MetaData.Name, cluster.Registry, flagEnabled)
 	fmt.Printf("Generated All Overrides\n")
 	//apply all resources to the cluster
 	applyResources(cluster.MetaData.Name)
@@ -473,7 +473,7 @@ func up() {
 }
 
 //todo: only generate the overrides we actually need, waiting till I build out the rest of this
-func genOverride(registryInfo Registry, flags map[string]bool) {
+func genOverride(clusterName string, registryInfo Registry, flags map[string]bool) {
 
 	//registry
 	if flags["registry"] {
@@ -488,9 +488,22 @@ func genOverride(registryInfo Registry, flags map[string]bool) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		cmd := exec.Command("kubectl", "apply", "-f", "overrides/registryOverride.yaml")
+
+		//#Create Override secret for Bootstrap Cluster
+		//kubectl create secret generic $CLUSTER_NAME-overrides --from-file=overrides.yaml=overrides.yaml
+		//kubectl label secret $CLUSTER_NAME-overrides clusterctl.cluster.x-k8s.io/move=
+
+		cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-registry-override", "--from-file=overrides.yaml=overrides/registryOverride.yaml")
 		//run the command
-		err = cmd.Run()
+		output, err := cmd.CombinedOutput()
+		fmt.Println(string(output))
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd = exec.Command("kubectl", "label", "secret", clusterName+"-registry-override", "clusterctl.cluster.x-k8s.io/move=")
+		//run the command
+		output, err = cmd.CombinedOutput()
+		fmt.Println(string(output))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -498,7 +511,7 @@ func genOverride(registryInfo Registry, flags map[string]bool) {
 
 	if flags["gpu"] {
 		gpuOverride := GpuOverride{}
-		gpuOverride.Gpu.Types[0] = "nvidia"
+		gpuOverride.Gpu.Types = append(gpuOverride.Gpu.Types, "nvidia")
 		gpuOverride.BuildNameExtra = "-nvidia"
 		data, err := yaml.Marshal(&gpuOverride)
 		if err != nil {
@@ -508,9 +521,17 @@ func genOverride(registryInfo Registry, flags map[string]bool) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		cmd := exec.Command("kubectl", "apply", "-f", "overrides/gpuOverride.yaml")
+		cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-gpu-override", "--from-file=overrides.yaml=overrides/gpuOverride.yaml")
 		//run the command
-		err = cmd.Run()
+		output, err := cmd.CombinedOutput()
+		fmt.Println(string(output))
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd = exec.Command("kubectl", "label", "secret", clusterName+"-gpu-override", "clusterctl.cluster.x-k8s.io/move=")
+		//run the command
+		output, err = cmd.CombinedOutput()
+		fmt.Println(string(output))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -519,7 +540,7 @@ func genOverride(registryInfo Registry, flags map[string]bool) {
 	if flags["registryGPU"] {
 		//gpu and registry
 		gpuRegOverride := GpuRegOverride{}
-		gpuRegOverride.Gpu.Types[0] = "nvidia"
+		gpuRegOverride.Gpu.Types = append(gpuRegOverride.Gpu.Types, "nvidia")
 		gpuRegOverride.BuildNameExtra = "-nvidia"
 		gpuRegOverride.ImageRegistriesWithAuth = append(gpuRegOverride.ImageRegistriesWithAuth, registryInfo)
 
@@ -531,9 +552,17 @@ func genOverride(registryInfo Registry, flags map[string]bool) {
 		if err != nil {
 			log.Fatal(err)
 		}
-		cmd := exec.Command("kubectl", "apply", "-f", "overrides/gpuRegOverride.yaml")
+		cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-gpu-registry-override", "--from-file=overrides.yaml=overrides/gpuRegOverride.yaml")
 		//run the command
-		err = cmd.Run()
+		output, err := cmd.CombinedOutput()
+		fmt.Println(string(output))
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd = exec.Command("kubectl", "label", "secret", clusterName+"-gpu-registry-override", "clusterctl.cluster.x-k8s.io/move=")
+		//run the command
+		output, err = cmd.CombinedOutput()
+		fmt.Println(string(output))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -876,14 +905,13 @@ func dkpDryRun(clusterName string, clusterLoadBalancer string, interfaceName str
 	defer clusteryaml.Close()
 
 	//dump the contents of our command into our empty file
-	output, err := cmd.CombinedOutput()
-	fmt.Println(string(output))
-	//run the command
+	cmd.Stdout = clusteryaml
+	err = cmd.Run()
+
 	if err != nil {
 		log.Fatal(err)
 	}
 }
-
 func applyResources(clusterName string) {
 	err := filepath.Walk("./resources/", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -894,7 +922,8 @@ func applyResources(clusterName string) {
 			//kubectl apply -f <cluster-name>-PreProvisionedInventory.yaml
 			cmd := exec.Command("kubectl", "apply", "-f", path)
 			//run the command
-			err := cmd.Run()
+			output, err := cmd.CombinedOutput()
+			fmt.Println(string(output))
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -912,7 +941,8 @@ func waitForClusterReady(clusterName string) {
 	cmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
 
 	//run the command
-	err := cmd.Run()
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -945,7 +975,8 @@ func pivotCluster(clusterName string) {
 	cmd = exec.Command("kubectl", "--kubeconfig", clusterName+".conf", "wait", "--for=condition=ControlPlaneReady", "clusters/"+clusterName, "--timeout=20m")
 
 	//run the command
-	err = cmd.Run()
+	output, err = cmd.CombinedOutput()
+	fmt.Println(string(output))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -954,7 +985,8 @@ func pivotCluster(clusterName string) {
 	cmd = exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
 
 	//run the command
-	err = cmd.Run()
+	output, err = cmd.CombinedOutput()
+	fmt.Println(string(output))
 	if err != nil {
 		log.Fatal(err)
 	}
