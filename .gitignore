@@ -11,3 +11,7 @@
 /md-*-KubeadmConfigTemplate.yaml
 /md-*-MachineDeployment.yaml
 /md-*-PreprovisionedMachineTemplate.yaml
+/resources/*
+/overrides/*
+/cluster-a.yaml
+/pkd

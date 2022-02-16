@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -30,9 +33,11 @@ type MetaData struct {
 }
 
 type Registry struct {
-	Address  string
-	User     string
-	Password string
+	Host          string `yaml:"host"`
+	Username      string `yaml:"username"`
+	Password      string `yaml:"password"`
+	Auth          string `yaml:"auth"`
+	IdentityToken string `yaml:"identityToken"`
 }
 
 type Cluster struct {
@@ -43,13 +48,7 @@ type Cluster struct {
 }
 
 type RegistryOverride struct {
-	ImageRegistriesWithAuth []struct {
-		Host          string `yaml:"host"`
-		Username      string `yaml:"username"`
-		Password      string `yaml:"password"`
-		Auth          string `yaml:"auth"`
-		IdentityToken string `yaml:"identityToken"`
-	} `yaml:"image_registries_with_auth"`
+	ImageRegistriesWithAuth []Registry `yaml:"image_registries_with_auth"`
 }
 
 type GpuOverride struct {
@@ -196,14 +195,13 @@ type KubeadmConfigTemplate struct {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 func main() {
 	argNum := len(os.Args)
-
 	if argNum >= 2 {
 		arg1 := os.Args[1]
 
 		switch {
 		//init
 		case arg1 == "init":
-			fmt.Printf("generating cluster.yaml")
+			fmt.Printf("Generating cluster.yaml")
 			initYaml()
 		//up
 		case arg1 == "up":
@@ -246,8 +244,8 @@ func main() {
 				" pkd init					create cluster.yaml and kommander.yaml templates\n" +
 				" pkd up [dry-run]			create all yaml resources needed to deploy a cluster\n" +
 				" pkd bootstrap [up/down]	control the bootstrap cluster\n" +
-				" pkd apply				apply all resources created with dry-run\n" +
-				" pkd pivot				pivot the controllers and resources to the cluster from bootstrap\n" +
+				" pkd apply					apply all resources created with dry-run\n" +
+				" pkd pivot					pivot the controllers and resources to the cluster from bootstrap\n" +
 				"/ pkd merge [kubeconfig]	merge kubeconfig\n")
 		}
 
@@ -257,249 +255,288 @@ func main() {
 //Read in cluster.yaml and start the cluster creation process
 func up() {
 
-	fmt.Printf("Deploying DKP Cluster\n")
+	//We need to generate the folder to store our k8s objects after creation
+	os.MkdirAll("resources", os.ModePerm)
+	fmt.Printf("Created resources directory\n")
+	os.MkdirAll("overrides", os.ModePerm)
+	fmt.Printf("Created overrides directory\n")
 
-	//haven't tested bootstrap command yet
-	//bootstrap("down")
-	//bootstrap("up")
+	bootstrap("down")
+	bootstrap("up")
 
+	//This loads the user customizable values to generate a cluster from cluster.yaml
 	cluster := loadCluster()
 
-	//haven't tested this yet
-	//these need error handling
-	//exec.Command("kubectl create secret generic " + cluster.MetaData.Name + "-ssh-key --from-file=ssh-privatekey=" + cluster.MetaData.SshPrivateKey)
-	//exec.Command("kubectl label secret " + cluster.MetaData.Name + "-ssh-key clusterctl.cluster.x-k8s.io/move=")
+	fmt.Printf("Cluster YAML loaded into PKD\n")
+
+	createSSHSecret(cluster.MetaData.Name, cluster.MetaData.SshPrivateKey)
+	fmt.Printf("Created SSH Secret\n")
 
 	//Create a ControlPlane PreProvisionedInventory Ojbect
 	genCPPI(cluster.MetaData, "controlplane", cluster.Controlplane)
-
+	fmt.Printf("Generated Contorl Plane PPI\n")
 	//For Each NodePool, create a Preprovisioned Inventory Object
 	//mdval sets the machinedeployment name ie md-0
 	mdVal := 0
 	for nodesetName, nodes := range cluster.NodePools {
 		genPPI(cluster.MetaData, nodesetName, nodes, mdVal)
+		fmt.Printf("Generated md-" + strconv.Itoa(mdVal) + " PPI\n")
 		mdVal++
 	}
 
-	//We only need to count the number of replicas in the 1st node pool at this time
+	//apply the PreProvisionedInventory objects to the bootstrap cluster
+	applyPPI(cluster.MetaData.Name)
+	fmt.Printf("Applied all PPI\n")
 
-	genOverride(cluster.Registry)
-
-	//haven't tested this
 	//Generate the cluster.yaml
-	//exec.Command(
-	//	"./dkp create cluster preprovisioned --cluster-name " +
-	//		cluster.MetaData.Name + "--control-plane-endpoint-host " +
-	//		cluster.Controlplane.Loadbalancer + " --virtual-ip-interface " +
-	//		cluster.MetaData.InterfaceName + " --worker-replicas " +
-	//		numReplicas(cluster.NodePools["md-0"]) + " --dry-run -o yaml > " +
-	//		cluster.MetaData.Name + ".yaml")
+	fmt.Printf(cluster.MetaData.Name + " \n" + cluster.Controlplane.Loadbalancer + " \n" + cluster.MetaData.InterfaceName + " \n")
+	dkpDryRun(cluster.MetaData.Name, cluster.Controlplane.Loadbalancer, cluster.MetaData.InterfaceName)
+	fmt.Printf("Dry Run Completed\n")
 
-	for nodesetName, nodes := range cluster.NodePools {
-		if nodesetName != "md-0" {
+	//Read in the dry run output
+	dryRunYaml, err := ioutil.ReadFile(cluster.MetaData.Name + ".yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-			md := MachineDeployment{}
-			md.APIVersion = "cluster.x-k8s.io/v1alpha4"
-			md.Kind = "MachineDeployment"
-			md.Metadata.Labels.ClusterXK8SIoClusterName = cluster.MetaData.Name
-			md.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-			md.Metadata.Namespace = "default"
-			md.Spec.ClusterName = cluster.MetaData.Name
-			md.Spec.MinReadySeconds = 0
-			md.Spec.ProgressDeadlineSeconds = 600
-			md.Spec.Replicas = len(nodes.Hosts)
-			md.Spec.RevisionHistoryLimit = 1
-			md.Spec.Selector.MatchLabels.ClusterXK8SIoClusterName = cluster.MetaData.Name
-			md.Spec.Selector.MatchLabels.ClusterXK8SIoDeploymentName = cluster.MetaData.Name + "-" + nodesetName
-			md.Spec.Strategy.RollingUpdate.MaxSurge = 1
-			md.Spec.Strategy.RollingUpdate.MaxUnavailable = 0
-			md.Spec.Strategy.Type = "RollingUpdate"
-			md.Spec.Template.Metadata.Labels.ClusterXK8SIoClusterName = cluster.MetaData.Name
-			md.Spec.Template.Metadata.Labels.ClusterXK8SIoDeploymentName = cluster.MetaData.Name + "-" + nodesetName
-			md.Spec.Template.Spec.Bootstrap.ConfigRef.APIVersion = "bootstrap.cluster.x-k8s.io/v1alpha4"
-			md.Spec.Template.Spec.Bootstrap.ConfigRef.Kind = "KubeadmConfigTemplate"
-			md.Spec.Template.Spec.Bootstrap.ConfigRef.Name = cluster.MetaData.Name + "-" + nodesetName
-			md.Spec.Template.Spec.ClusterName = cluster.MetaData.Name
-			md.Spec.Template.Spec.InfrastructureRef.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
-			md.Spec.Template.Spec.InfrastructureRef.Kind = "PreprovisionedMachineTemplate"
-			md.Spec.Template.Spec.InfrastructureRef.Name = cluster.MetaData.Name + "-" + nodesetName
-			md.Spec.Template.Spec.Version = "v1.21.6"
+	decoder := yaml.NewDecoder(bytes.NewReader(dryRunYaml))
+	var i map[string]interface{}
+	for decoder.Decode(&i) == nil {
 
-			pmt := PreprovisionedMachineTemplate{}
-			pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
-			pmt.Kind = "PreprovisionedMachineTemplate"
-			pmt.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-			pmt.Metadata.Namespace = "default"
-			pmt.Spec.Template.Spec.InventoryRef.Name = cluster.MetaData.Name + "-" + nodesetName
-			pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
-			switch {
-			case nodes.Flags["registry"] && nodes.Flags["gpu"]:
-				pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-gpuRegOverride"
-				pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			case nodes.Flags["registry"]:
-				pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-registryOverride"
-				pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			case nodes.Flags["gpu"]:
-				pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-gpuOverride"
-				pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+		resourceName := i["metadata"].(map[string]interface{})["name"].(string)
+		resourceKind := i["kind"].(string)
 
-			}
-
-			kctStr1 := "#!/bin/bash\n" +
-				"for i in $(ls /run/kubeadm/ | grep 'kubeadm.yaml\\|kubeadm-join-config.yaml'); do\n" +
-				"  cat <<EOF>> \"/run/kubeadm//$i\"\n" +
-				"---\n" +
-				"kind: KubeProxyConfiguration\n" +
-				"apiVersion: kubeproxy.config.k8s.io/v1alpha1\n" +
-				"metricsBindAddress: \"0.0.0.0:10249\"\n" +
-				"EOF\n" +
-				"done"
-
-			kctStr2 := "[metrics]\n" +
-				"  address = \"0.0.0.0:1338\"\n" +
-				"  grpc_histogram = false"
-
-			kct := KubeadmConfigTemplate{}
-			kct.APIVersion = "bootstrap.cluster.x-k8s.io/v1alpha4"
-			kct.Kind = "KubeadmConfigTemplate"
-			kct.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-			kct.Metadata.Namespace = "default"
-			kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
-				Content     string "yaml:\"content\""
-				Path        string "yaml:\"path\""
-				Permissions string "yaml:\"permissions\""
-			}{
-				Content:     kctStr1,
-				Path:        "/run/kubeadm/konvoy-set-kube-proxy-configuration.sh",
-				Permissions: "0700",
-			})
-			kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
-				Content     string "yaml:\"content\""
-				Path        string "yaml:\"path\""
-				Permissions string "yaml:\"permissions\""
-			}{
-				Content:     kctStr2,
-				Path:        "/etc/containerd/conf.d/konvoy-metrics.toml",
-				Permissions: "0644",
-			})
-			kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
-			kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
-			kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
-			kct.Spec.Template.Spec.PreKubeadmCommands = append(kct.Spec.Template.Spec.PreKubeadmCommands,
-				"systemctl daemon-reload",
-				"systemctl restart containerd",
-				"/run/kubeadm/konvoy-set-kube-proxy-configuration.sh")
-
-			data, err := yaml.Marshal(&md)
+		if !strings.Contains(resourceName, "md-0") {
+			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
+			file, err := yaml.Marshal(&i)
 			if err != nil {
 				log.Fatal(err)
 			}
-			err = ioutil.WriteFile(nodesetName+"-MachineDeployment.yaml", data, 0644)
+			err = ioutil.WriteFile(fileName, file, 0644)
 			if err != nil {
 				log.Fatal(err)
 			}
-			data, err = yaml.Marshal(&pmt)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = ioutil.WriteFile(nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
-			if err != nil {
-				log.Fatal(err)
-			}
-			data, err = yaml.Marshal(&kct)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = ioutil.WriteFile(nodesetName+"-KubeadmConfigTemplate.yaml", data, 0644)
-			if err != nil {
-				log.Fatal(err)
-			}
-
 		}
 	}
+
+	fmt.Printf("Generated the Resource Objects from Dry Run Output File\n")
+
+	flagEnabled := map[string]bool{"registry": false, "gpu": false, "registryGPU": false}
+
+	//Create all MachineDeployment, PreProvisionedMachineTemplate and KubeadmConfigTemplate objects
+	//Also trigger the overrides
+	for nodesetName, nodes := range cluster.NodePools {
+		md := MachineDeployment{}
+		md.APIVersion = "cluster.x-k8s.io/v1alpha4"
+		md.Kind = "MachineDeployment"
+		md.Metadata.Labels.ClusterXK8SIoClusterName = cluster.MetaData.Name
+		md.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
+		md.Metadata.Namespace = "default"
+		md.Spec.ClusterName = cluster.MetaData.Name
+		md.Spec.MinReadySeconds = 0
+		md.Spec.ProgressDeadlineSeconds = 600
+		md.Spec.Replicas = len(nodes.Hosts)
+		md.Spec.RevisionHistoryLimit = 1
+		md.Spec.Selector.MatchLabels.ClusterXK8SIoClusterName = cluster.MetaData.Name
+		md.Spec.Selector.MatchLabels.ClusterXK8SIoDeploymentName = cluster.MetaData.Name + "-" + nodesetName
+		md.Spec.Strategy.RollingUpdate.MaxSurge = 1
+		md.Spec.Strategy.RollingUpdate.MaxUnavailable = 0
+		md.Spec.Strategy.Type = "RollingUpdate"
+		md.Spec.Template.Metadata.Labels.ClusterXK8SIoClusterName = cluster.MetaData.Name
+		md.Spec.Template.Metadata.Labels.ClusterXK8SIoDeploymentName = cluster.MetaData.Name + "-" + nodesetName
+		md.Spec.Template.Spec.Bootstrap.ConfigRef.APIVersion = "bootstrap.cluster.x-k8s.io/v1alpha4"
+		md.Spec.Template.Spec.Bootstrap.ConfigRef.Kind = "KubeadmConfigTemplate"
+		md.Spec.Template.Spec.Bootstrap.ConfigRef.Name = cluster.MetaData.Name + "-" + nodesetName
+		md.Spec.Template.Spec.ClusterName = cluster.MetaData.Name
+		md.Spec.Template.Spec.InfrastructureRef.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
+		md.Spec.Template.Spec.InfrastructureRef.Kind = "PreprovisionedMachineTemplate"
+		md.Spec.Template.Spec.InfrastructureRef.Name = cluster.MetaData.Name + "-" + nodesetName
+		md.Spec.Template.Spec.Version = "v1.21.6"
+
+		pmt := PreprovisionedMachineTemplate{}
+		pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
+		pmt.Kind = "PreprovisionedMachineTemplate"
+		pmt.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
+		pmt.Metadata.Namespace = "default"
+		pmt.Spec.Template.Spec.InventoryRef.Name = cluster.MetaData.Name + "-" + nodesetName
+		pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
+		switch {
+		case nodes.Flags["registry"] && nodes.Flags["gpu"]:
+			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-gpuRegOverride"
+			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+			flagEnabled["registryGPU"] = true
+		case nodes.Flags["registry"]:
+			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-registryOverride"
+			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+			flagEnabled["registry"] = true
+		case nodes.Flags["gpu"]:
+			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-gpuOverride"
+			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+			flagEnabled["gpu"] = true
+
+		}
+
+		kctStr1 := "#!/bin/bash\n" +
+			"for i in $(ls /run/kubeadm/ | grep 'kubeadm.yaml\\|kubeadm-join-config.yaml'); do\n" +
+			"  cat <<EOF>> \"/run/kubeadm//$i\"\n" +
+			"---\n" +
+			"kind: KubeProxyConfiguration\n" +
+			"apiVersion: kubeproxy.config.k8s.io/v1alpha1\n" +
+			"metricsBindAddress: \"0.0.0.0:10249\"\n" +
+			"EOF\n" +
+			"done"
+
+		kctStr2 := "[metrics]\n" +
+			"  address = \"0.0.0.0:1338\"\n" +
+			"  grpc_histogram = false"
+
+		kct := KubeadmConfigTemplate{}
+		kct.APIVersion = "bootstrap.cluster.x-k8s.io/v1alpha4"
+		kct.Kind = "KubeadmConfigTemplate"
+		kct.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
+		kct.Metadata.Namespace = "default"
+		kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
+			Content     string "yaml:\"content\""
+			Path        string "yaml:\"path\""
+			Permissions string "yaml:\"permissions\""
+		}{
+			Content:     kctStr1,
+			Path:        "/run/kubeadm/konvoy-set-kube-proxy-configuration.sh",
+			Permissions: "0700",
+		})
+		kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
+			Content     string "yaml:\"content\""
+			Path        string "yaml:\"path\""
+			Permissions string "yaml:\"permissions\""
+		}{
+			Content:     kctStr2,
+			Path:        "/etc/containerd/conf.d/konvoy-metrics.toml",
+			Permissions: "0644",
+		})
+		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
+		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
+		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
+		kct.Spec.Template.Spec.PreKubeadmCommands = append(kct.Spec.Template.Spec.PreKubeadmCommands,
+			"systemctl daemon-reload",
+			"systemctl restart containerd",
+			"/run/kubeadm/konvoy-set-kube-proxy-configuration.sh")
+
+		data, err := yaml.Marshal(&md)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-MachineDeployment.yaml", data, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		data, err = yaml.Marshal(&pmt)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		data, err = yaml.Marshal(&kct)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-KubeadmConfigTemplate.yaml", data, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+	}
+	fmt.Printf("Generated all Custom Resources for NodePools\n")
+
+	//creates all override files for KIB
+	genOverride(cluster.Registry, flagEnabled)
+	fmt.Printf("Generated All Overrides\n")
+	//apply all resources to the cluster
+	applyResources(cluster.MetaData.Name)
+	fmt.Printf("Applied All Resources, Cluster Spinning Up\n")
+	//kubectl  wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+	waitForClusterReady(cluster.MetaData.Name)
+	fmt.Printf("Cluster Is Ready\n")
+	//#Get the kubeconfig for our new cluster
+	getKubeconfig(cluster.MetaData.Name)
+	fmt.Printf("Grabbed the Kubeconfig\n")
+	//#Pivot to the new cluster
+	pivotCluster(cluster.MetaData.Name)
+	fmt.Printf("Pivoted the Cluster\n")
+	//#Clean up the Bootstrap Cluster
+	bootstrap("down")
+	fmt.Printf("Cleaned up the Bootstrap Cluster\n")
+	//#Merge the kubeconfig into our ~/.kube/config
+	mergeKubeconfig(cluster.MetaData.Name)
+	fmt.Printf("Merged the Kubeconfig\n")
 }
 
 //todo: only generate the overrides we actually need, waiting till I build out the rest of this
-func genOverride(registryInfo Registry) {
+func genOverride(registryInfo Registry, flags map[string]bool) {
 
 	//registry
-	registryOverride := RegistryOverride{
-		ImageRegistriesWithAuth: []struct {
-			Host          string "yaml:\"host\""
-			Username      string "yaml:\"username\""
-			Password      string "yaml:\"password\""
-			Auth          string "yaml:\"auth\""
-			IdentityToken string "yaml:\"identityToken\""
-		}{
-			{
-				Host:     registryInfo.Address,
-				Username: registryInfo.User,
-				Password: registryInfo.Password,
-			},
-		},
+	if flags["registry"] {
+		registryOverride := RegistryOverride{}
+		registryOverride.ImageRegistriesWithAuth = append(registryOverride.ImageRegistriesWithAuth, registryInfo)
+
+		data, err := yaml.Marshal(&registryOverride)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("overrides/registryOverride.yaml", data, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd := exec.Command("kubectl", "apply", "-f", "overrides/registryOverride.yaml")
+		//run the command
+		err = cmd.Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	gpuOverride := GpuOverride{
-		Gpu: struct {
-			Types []string "yaml:\"types\""
-		}{
-			Types: []string{
-				"nvidia",
-			},
-		},
-		BuildNameExtra: "\"-nvidia\"",
+	if flags["gpu"] {
+		gpuOverride := GpuOverride{}
+		gpuOverride.Gpu.Types[0] = "nvidia"
+		gpuOverride.BuildNameExtra = "-nvidia"
+		data, err := yaml.Marshal(&gpuOverride)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("overrides/gpuOverride.yaml", data, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd := exec.Command("kubectl", "apply", "-f", "overrides/gpuOverride.yaml")
+		//run the command
+		err = cmd.Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
-	//gpu and registry
-	gpuRegOverride := GpuRegOverride{
-		Gpu: struct {
-			Types []string "yaml:\"types\""
-		}{
-			Types: []string{
-				"nvidia",
-			},
-		},
-		BuildNameExtra: "\"-nvidia\"",
-		ImageRegistriesWithAuth: []struct {
-			Host          string "yaml:\"host\""
-			Username      string "yaml:\"username\""
-			Password      string "yaml:\"password\""
-			Auth          string "yaml:\"auth\""
-			IdentityToken string "yaml:\"identityToken\""
-		}{
-			{
-				Host:     registryInfo.Address,
-				Username: registryInfo.User,
-				Password: registryInfo.Password,
-			},
-		},
-	}
+	if flags["registryGPU"] {
+		//gpu and registry
+		gpuRegOverride := GpuRegOverride{}
+		gpuRegOverride.Gpu.Types[0] = "nvidia"
+		gpuRegOverride.BuildNameExtra = "-nvidia"
+		gpuRegOverride.ImageRegistriesWithAuth = append(gpuRegOverride.ImageRegistriesWithAuth, registryInfo)
 
-	data, err := yaml.Marshal(&registryOverride)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = ioutil.WriteFile("registryOverride.yaml", data, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	data, err = yaml.Marshal(&gpuOverride)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = ioutil.WriteFile("gpuOverride.yaml", data, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	data, err = yaml.Marshal(&gpuRegOverride)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = ioutil.WriteFile("gpuRegOverride.yaml", data, 0644)
-	if err != nil {
-		log.Fatal(err)
+		data, err := yaml.Marshal(&gpuRegOverride)
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile("overrides/gpuRegOverride.yaml", data, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cmd := exec.Command("kubectl", "apply", "-f", "overrides/gpuRegOverride.yaml")
+		//run the command
+		err = cmd.Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 }
@@ -545,7 +582,7 @@ func genCPPI(mdata MetaData, clusterName string, cplane ControlPlane) {
 		log.Fatal(err)
 	}
 
-	err2 := ioutil.WriteFile(mdata.Name+"-control-plane.yaml", data, 0644)
+	err2 := ioutil.WriteFile("resources/"+mdata.Name+"-control-plane-PreprovisionedInventory.yaml", data, 0644)
 
 	if err2 != nil {
 
@@ -595,7 +632,7 @@ func genPPI(mdata MetaData, clusterName string, npool NodePool, mdVal int) {
 		log.Fatal(err)
 	}
 
-	err2 := ioutil.WriteFile(mdata.Name+"-md-"+strconv.Itoa(mdVal)+".yaml", data, 0644)
+	err2 := ioutil.WriteFile("resources/"+mdata.Name+"-md-"+strconv.Itoa(mdVal)+"-PreprovisionedInventory.yaml", data, 0644)
 
 	if err2 != nil {
 
@@ -639,9 +676,11 @@ func initYaml() {
 			InterfaceName: "ens192",
 		},
 		Registry: Registry{
-			Address:  "io.dockerhub.com",
-			User:     "user",
-			Password: "password",
+			Host:          "",
+			Username:      "",
+			Password:      "",
+			Auth:          "",
+			IdentityToken: "",
 		},
 		Controlplane: ControlPlane{
 			Loadbalancer: "10.0.0.10",
@@ -666,7 +705,7 @@ func initYaml() {
 		log.Fatal(err)
 	}
 
-	err2 := ioutil.WriteFile("cluster.yaml", data, 0)
+	err2 := ioutil.WriteFile("cluster.yaml", data, 0644)
 
 	if err2 != nil {
 
@@ -679,18 +718,244 @@ func initYaml() {
 //Start the bootstrap cluster on this host
 func bootstrap(str string) {
 	if str == "up" {
-		fmt.Printf("Creating Bootstrap Cluster")
+		fmt.Printf("Creating Bootstrap Cluster\n")
 
-		exec.Command("./dkp create bootstrap")
+		cmd := exec.Command("./dkp", "create", "bootstrap")
+		//run the command
+		output, err := cmd.CombinedOutput()
+		fmt.Println(string(output))
+		if err != nil {
+			log.Fatal(err)
+		}
+
 	} else if str == "down" {
-		fmt.Printf("Deleting Bootstrap Cluster")
+		fmt.Printf("Deleting Bootstrap Cluster\n")
 
-		exec.Command("./dkp delete bootstrap")
+		cmd := exec.Command("./dkp", "delete", "bootstrap")
+		//run the command
+		output, err := cmd.CombinedOutput()
+		fmt.Println(string(output))
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
-//have not tested this yet
-//func createOverrideSecret(name string, override string) {
-//	exec.Command("kubectl", "create secret generic "+name+"-"+override+"-override --from-file="+override+".yaml="+override+".yaml")
-//	exec.Command("kubectl", "label secret "+name+"-"+override+"-override clusterctl.cluster.x-k8s.io/move=")
-//}
+func mergeKubeconfig(clusterName string) {
+
+	os.Setenv("KUBECONFIG", "./"+clusterName+"+.conf:"+os.Getenv("HOME")+"/.kube/config")
+
+	cmd1 := exec.Command("kubectl", "config", "view", "--flatten")
+	cmd1.Env = os.Environ()
+
+	// open the out file for writing
+	mergedKubeconfig, err := os.Create("./merged.conf")
+	if err != nil {
+		panic(err)
+	}
+	defer mergedKubeconfig.Close()
+	cmd1.Stdout = mergedKubeconfig
+	err = cmd1.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = os.Chmod("merged.conf", 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	start := "merged.conf"
+	destination := os.Getenv("HOME") + "/.kube/config"
+	os.Rename(start, destination)
+
+	cmd2 := exec.Command("kubectl", "config", "get-contexts", "--kubeconfig=./"+clusterName+".conf", "--output=name")
+
+	var outbuf, errbuf strings.Builder
+	cmd2.Stdout = &outbuf
+	cmd2.Stderr = &errbuf
+	err = cmd2.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	context := strings.TrimSuffix(outbuf.String(), "\n")
+	os.Setenv("KUBECONFIG", os.Getenv("HOME")+"/.kube/config")
+
+	cmd3 := exec.Command("kubectl", "config", "set-context", context)
+	cmd3.Env = os.Environ()
+
+	err = cmd3.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+func getKubeconfig(clusterName string) {
+	//create the command
+	//./dkp get kubeconfig -c ${CLUSTER_NAME} > ${CLUSTER_NAME}.conf
+	cmd := exec.Command("./dkp", "get", "kubeconfig", "-c", clusterName)
+
+	//create the empty target file
+	kubeconfig, err := os.Create(clusterName + ".conf")
+	if err != nil {
+		panic(err)
+	}
+	defer kubeconfig.Close()
+
+	//dump the contents of our command into our empty file
+	cmd.Stdout = kubeconfig
+
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+func createSSHSecret(clusterName string, keyName string) {
+
+	//exec.Command("kubectl create secret generic " + cluster.MetaData.Name + "-ssh-key --from-file=ssh-privatekey=" + cluster.MetaData.SshPrivateKey)
+	//exec.Command("kubectl label secret " + cluster.MetaData.Name + "-ssh-key clusterctl.cluster.x-k8s.io/move=")
+
+	cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-ssh-key", "--from-file=ssh-privatekey="+keyName)
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cmd2 := exec.Command("kubectl", "label", "secret", clusterName+"-ssh-key", "clusterctl.cluster.x-k8s.io/move=")
+	err = cmd2.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func applyPPI(clusterName string) {
+
+	err := filepath.Walk("./resources/", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		//cluster-a-control-plane-PreprovisionedInventory.yaml
+		//
+		//
+		if strings.Contains(path, "-PreprovisionedInventory.yaml") && strings.Contains(path, clusterName) {
+			//kubectl apply -f <cluster-name>-PreProvisionedInventory.yaml
+			cmd := exec.Command("kubectl", "apply", "-f", path)
+			//run the command
+			err := cmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func dkpDryRun(clusterName string, clusterLoadBalancer string, interfaceName string) {
+
+	cmd := exec.Command(
+		"./dkp", "create", "cluster", "preprovisioned",
+		"--cluster-name", clusterName,
+		"--control-plane-endpoint-host", clusterLoadBalancer,
+		"--virtual-ip-interface", interfaceName,
+		"--dry-run", "-o", "yaml")
+
+	//create the empty target file
+	clusteryaml, err := os.Create(clusterName + ".yaml")
+	if err != nil {
+		panic(err)
+	}
+	defer clusteryaml.Close()
+
+	//dump the contents of our command into our empty file
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	//run the command
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func applyResources(clusterName string) {
+	err := filepath.Walk("./resources/", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		if !strings.Contains(path, "-PreprovisionedInventory.yaml") && strings.Contains(path, clusterName) {
+			//kubectl apply -f <cluster-name>-PreProvisionedInventory.yaml
+			cmd := exec.Command("kubectl", "apply", "-f", path)
+			//run the command
+			err := cmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func waitForClusterReady(clusterName string) {
+
+	//kubectl  wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+	cmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
+
+	//run the command
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+
+func pivotCluster(clusterName string) {
+	//#Pivot to the new cluster
+
+	//./dkp create bootstrap controllers --kubeconfig ${CLUSTER_NAME}.conf
+	cmd := exec.Command("./dkp", "create", "bootstrap", "controllers", "--kubeconfig", clusterName+".conf")
+
+	//run the command
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//./dkp move --to-kubeconfig ${CLUSTER_NAME}.conf
+	cmd = exec.Command("./dkp", "move", "--to-kubeconfig", clusterName+".conf")
+
+	output, err = cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=ControlPlaneReady "clusters/${CLUSTER_NAME}" --timeout=20m
+	cmd = exec.Command("kubectl", "--kubeconfig", clusterName+".conf", "wait", "--for=condition=ControlPlaneReady", "clusters/"+clusterName, "--timeout=20m")
+
+	//run the command
+	err = cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//kubectl  wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+	cmd = exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
+
+	//run the command
+	err = cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
