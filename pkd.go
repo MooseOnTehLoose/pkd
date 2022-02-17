@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -32,6 +31,8 @@ type MetaData struct {
 	SshPrivateKey string
 	InterfaceName string
 	Loadbalancer  string
+	KIBTimeout    string
+	PivotTimeout  string
 }
 type Registry struct {
 	Host          string `yaml:"host"`
@@ -173,6 +174,7 @@ type k8sObject struct {
 	Kind       string                 `yaml:"kind,omitempty"`
 	Metadata   map[string]interface{} `yaml:"metadata,omitempty"`
 	Spec       map[string]interface{} `yaml:"spec,omitempty"`
+	Data       map[string]interface{} `yaml:"data,omitempty"`
 }
 
 func main() {
@@ -218,7 +220,12 @@ func main() {
 			fmt.Printf("Pivoting cluster from boostrap")
 		//merge
 		case arg1 == "merge":
-			fmt.Printf("merging kubeconfig into ~/.kube/config")
+			if argNum == 3 {
+				fmt.Printf("Merging " + os.Args[2] + " kubeconfig into ~/.kube/config\n")
+				mergeKubeconfig(os.Args[2])
+			} else {
+				fmt.Println("Usage:\n  pkd merge <cluster-name>")
+			}
 		//no args or bad args
 		default:
 			fmt.Printf("Usage:\n" +
@@ -259,11 +266,11 @@ func up() {
 
 	//For Each NodePool, create a Preprovisioned Inventory Object
 	//mdval sets the machinedeployment name ie md-0
-	mdVal := 0
-	for _, nodes := range cluster.NodePools {
-		genPPI(cluster.MetaData, nodes, mdVal)
-		fmt.Printf("Generated md-" + strconv.Itoa(mdVal) + " PPI\n")
-		mdVal++
+
+	for nodesetName, nodes := range cluster.NodePools {
+		genPPI(cluster.MetaData, nodes, nodesetName)
+		fmt.Printf("Generated " + nodesetName + " PPI\n")
+
 	}
 
 	//apply the PreProvisionedInventory objects to the bootstrap cluster
@@ -330,13 +337,22 @@ func up() {
 	applyResources(cluster.MetaData.Name)
 	fmt.Printf("Applied All Resources, Cluster Spinning Up\n")
 
-	waitForClusterReady(cluster.MetaData.Name)
+	timeout := "40"
+	if cluster.MetaData.KIBTimeout != "" {
+		timeout = cluster.MetaData.KIBTimeout
+	}
+	waitForClusterReady(cluster.MetaData.Name, timeout)
 	fmt.Printf("Cluster Is Ready\n")
 
 	getKubeconfig(cluster.MetaData.Name)
 	fmt.Printf("Grabbed the Kubeconfig\n")
 
-	pivotCluster(cluster.MetaData.Name)
+	if cluster.MetaData.PivotTimeout != "" {
+		timeout = cluster.MetaData.PivotTimeout
+	} else {
+		timeout = "20"
+	}
+	pivotCluster(cluster.MetaData.Name, timeout)
 	fmt.Printf("Pivoted the Cluster\n")
 
 	bootstrap("down")
@@ -490,7 +506,7 @@ func genCPPI(mdata MetaData, cplane NodePool) {
 	}
 }
 
-func genPPI(mdata MetaData, npool NodePool, mdVal int) {
+func genPPI(mdata MetaData, npool NodePool, nodesetName string) {
 
 	//initialize the array
 	hosts := make([]map[string]string, len(npool.Hosts))
@@ -505,7 +521,7 @@ func genPPI(mdata MetaData, npool NodePool, mdVal int) {
 		"apiVersion": "infrastructure.cluster.konvoy.d2iq.io/v1alpha1",
 		"kind":       "PreprovisionedInventory",
 		"metadata": map[string]interface{}{
-			"name":      mdata.Name + "-md-" + strconv.Itoa(mdVal),
+			"name":      mdata.Name + "-" + nodesetName,
 			"namespace": "default",
 			"labels": map[string]string{
 				"cluster.x-k8s.io/cluster-name":    mdata.Name,
@@ -531,7 +547,7 @@ func genPPI(mdata MetaData, npool NodePool, mdVal int) {
 		log.Fatal(err)
 	}
 
-	err2 := ioutil.WriteFile("resources/"+mdata.Name+"-md-"+strconv.Itoa(mdVal)+"-PreprovisionedInventory.yaml", data, 0644)
+	err2 := ioutil.WriteFile("resources/"+mdata.Name+"-"+nodesetName+"-PreprovisionedInventory.yaml", data, 0644)
 
 	if err2 != nil {
 
@@ -636,7 +652,9 @@ func bootstrap(str string) {
 
 func mergeKubeconfig(clusterName string) {
 
-	os.Setenv("KUBECONFIG", "./"+clusterName+"+.conf:"+os.Getenv("HOME")+"/.kube/config")
+	mergedConfigs := "./" + clusterName + ".conf:" + os.Getenv("HOME") + "/.kube/config"
+	fmt.Println("Setting Environment Variable for kubeconfig to: \n  " + mergedConfigs)
+	os.Setenv("KUBECONFIG", mergedConfigs)
 
 	cmd1 := exec.Command("kubectl", "config", "view", "--flatten")
 	cmd1.Env = os.Environ()
@@ -674,8 +692,9 @@ func mergeKubeconfig(clusterName string) {
 
 	context := strings.TrimSuffix(outbuf.String(), "\n")
 	os.Setenv("KUBECONFIG", os.Getenv("HOME")+"/.kube/config")
+	fmt.Println("Switching to Context: " + context)
 
-	cmd3 := exec.Command("kubectl", "config", "set-context", context)
+	cmd3 := exec.Command("kubectl", "config", "use-context", context)
 	cmd3.Env = os.Environ()
 
 	err = cmd3.Run()
@@ -981,10 +1000,10 @@ func applyResources(clusterName string) {
 	}
 }
 
-func waitForClusterReady(clusterName string) {
+func waitForClusterReady(clusterName string, kibTimeout string) {
 
 	//kubectl  wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
-	cmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
+	cmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout="+kibTimeout+"m")
 
 	//run the command
 	output, err := cmd.CombinedOutput()
@@ -992,9 +1011,20 @@ func waitForClusterReady(clusterName string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	//give the user time to fix any machines stuck in pending
+
+	fmt.Printf("Waiting up to 1 hour for all machines to be ready\nTo check if your machines are stuck, use command:\n\n  kubectl get machines\n\n")
+	cmd = exec.Command("kubectl", "wait", "--for=condition=Ready", "machine", "--all", "--timeout=60m")
+
+	//run the command
+	output, err = cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func pivotCluster(clusterName string) {
+func pivotCluster(clusterName string, pivotTimeout string) {
 	//#Pivot to the new cluster
 
 	//./dkp create bootstrap controllers --kubeconfig ${CLUSTER_NAME}.conf
@@ -1017,7 +1047,7 @@ func pivotCluster(clusterName string) {
 	}
 
 	//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=ControlPlaneReady "clusters/${CLUSTER_NAME}" --timeout=20m
-	cmd = exec.Command("kubectl", "--kubeconfig", clusterName+".conf", "wait", "--for=condition=ControlPlaneReady", "clusters/"+clusterName, "--timeout=20m")
+	cmd = exec.Command("kubectl", "--kubeconfig", clusterName+".conf", "wait", "--for=condition=ControlPlaneReady", "clusters/"+clusterName, "--timeout="+pivotTimeout+"m")
 
 	//run the command
 	output, err = cmd.CombinedOutput()
@@ -1026,8 +1056,8 @@ func pivotCluster(clusterName string) {
 		log.Fatal(err)
 	}
 
-	//kubectl  wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
-	cmd = exec.Command("kubectl", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
+	//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+	cmd = exec.Command("kubectl", "--kubeconfig", clusterName+".conf", "wait", "--for=condition=Ready", "clusters/"+clusterName, "--timeout=40m")
 
 	//run the command
 	output, err = cmd.CombinedOutput()
