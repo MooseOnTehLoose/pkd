@@ -1,15 +1,22 @@
-# PKD
+## docsify
 
-Packed with Features for DKP CLI!
+> A magical DKP On-Premise Pre-Provisioned cluster generator
 
-## Getting Started
+## What it is
 
-TODO
+Docsify generates your documentation website on the fly. Unlike GitBook, it does not generate static html files. Instead, it smartly loads and parses your Markdown files and displays them as a website. To start using it, all you need to do is create an `index.html` and [deploy it on GitHub Pages](deploy.md).
 
-## pkd init
+See the [Quick start](quickstart.md) guide for more details.
 
-pkd init will generate an example cluster.yaml file in the same direcotry as the cli with some default settings
+## Features
 
-## pkd up 
+- No more exporting shell variables
+- Single yaml file for all cluster configuration
+- PodSubnet and ServiceSubnet CIDR customization
+- Registry and GPU override integration
+- N number of NodePools supported with NodePool specific overrides
+- Separation of each object into its own yaml file to simplify manual editing 
 
-pkd up will load in a file named cluster.yaml in the same directory as the cli and generate all resources needed to deploy a DKP 2.1.1 cluster, then kick off the deployment of said cluster.
+## Examples
+
+Check out the [Showcase](showcase.md) to see examples of Cluster YAML templates that can make life easier for YOU!
