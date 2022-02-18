@@ -26,13 +26,15 @@ type NodePool struct {
 	Flags map[string]bool
 }
 type MetaData struct {
-	Name          string
-	SshUser       string
-	SshPrivateKey string
-	InterfaceName string
-	Loadbalancer  string
-	KIBTimeout    string
-	PivotTimeout  string
+	Name          string `yaml:"name"`
+	SshUser       string `yaml:"sshuser"`
+	SshPrivateKey string `yaml:"sshprivatekey"`
+	InterfaceName string `yaml:"interfacename"`
+	Loadbalancer  string `yaml:"loadbalancer"`
+	KIBTimeout    string `yaml:"kibtimeout"`
+	PivotTimeout  string `yaml:"pivottimeout"`
+	PodSubnet     string `yaml:"podsubnet"`
+	ServiceSubnet string `yaml:"servicesubnet"`
 }
 type Registry struct {
 	Host          string `yaml:"host"`
@@ -176,6 +178,49 @@ type k8sObject struct {
 	Spec       map[string]interface{} `yaml:"spec,omitempty"`
 	Data       map[string]interface{} `yaml:"data,omitempty"`
 }
+type k8sCluster struct {
+	APIVersion string             `yaml:"apiVersion"`
+	Kind       string             `yaml:"kind"`
+	MetaData   k8sClusterMetadata `yaml:"metadata"`
+	Spec       k8sClusterSpec     `yaml:"spec"`
+}
+type k8sClusterMetadata struct {
+	Labels    map[string]string `yaml:"labels"`
+	Name      string            `yaml:"name"`
+	Namespace string            `yaml:"namespace"`
+}
+type k8sClusterSpec struct {
+	ClusterNetwork       k8sClusterClusterNetwork `yaml:"clusterNetwork"`
+	ControlPlaneEndpoint k8sControlPlaneEndpoint  `yaml:"controlPlaneEndpoint"`
+	ControlPlaneRef      k8sControlPlaneRef       `yaml:"controlPlaneRef"`
+	InfrastructureRef    k8sInfrastructureRef     `yaml:"infrastructureRef"`
+}
+type k8sClusterClusterNetwork struct {
+	Pods     k8sPods     `yaml:"pods"`
+	Services k8sServices `yaml:"services"`
+}
+type k8sPods struct {
+	CidrBlocks []string `yaml:"cidrBlocks"`
+}
+type k8sServices struct {
+	CidrBlocks []string `yaml:"cidrBlocks"`
+}
+type k8sControlPlaneEndpoint struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+}
+type k8sControlPlaneRef struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Name       string `yaml:"name"`
+	Namespace  string `yaml:"namespace"`
+}
+type k8sInfrastructureRef struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Name       string `yaml:"name"`
+	Namespace  string `yaml:"namespace"`
+}
 
 func main() {
 	argNum := len(os.Args)
@@ -281,6 +326,17 @@ func up() {
 	dkpDryRun(cluster.MetaData.Name, cluster.MetaData.Loadbalancer, cluster.MetaData.InterfaceName)
 	fmt.Printf("Dry Run Completed\n")
 
+	podSubnet := cluster.MetaData.PodSubnet
+	serviceSubnet := cluster.MetaData.ServiceSubnet
+
+	//set defaults if not specified in cluster.yaml
+	if podSubnet == "" {
+		podSubnet = "192.168.0.0/16"
+	}
+	if serviceSubnet == "" {
+		serviceSubnet = "10.96.0.0/12"
+	}
+
 	//Read in the Dry Run output and generate individual object file from it
 	dryRunOutput, err := os.Open(cluster.MetaData.Name + ".yaml")
 	if err != nil {
@@ -302,10 +358,102 @@ func up() {
 		}
 		resourceName := spec.Metadata["name"].(string)
 		resourceKind := spec.Kind
+		//cidr block configuration
+		if resourceName == cluster.MetaData.Name && resourceKind == "Cluster" {
+
+			test := k8sCluster{
+				APIVersion: "cluster.x-k8s.io/v1alpha4",
+				Kind:       resourceKind,
+				MetaData: k8sClusterMetadata{
+					Labels: map[string]string{
+						"konvoy.d2iq.io/cluster-name": cluster.MetaData.Name,
+						"konvoy.d2iq.io/cni":          "calico",
+						"konvoy.d2iq.io/csi":          "local-volume-provisioner",
+						"konvoy.d2iq.io/osHint":       "",
+						"konvoy.d2iq.io/provider":     "preprovisioned",
+					},
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: k8sClusterSpec{
+					ClusterNetwork: k8sClusterClusterNetwork{
+						Pods: k8sPods{
+							CidrBlocks: []string{podSubnet},
+						},
+						Services: k8sServices{
+							CidrBlocks: []string{serviceSubnet},
+						},
+					},
+					ControlPlaneEndpoint: k8sControlPlaneEndpoint{
+						Host: "",
+						Port: 0,
+					},
+					ControlPlaneRef: k8sControlPlaneRef{
+						APIVersion: "controlplane.cluster.x-k8s.io/v1alpha4",
+						Kind:       "KubeadmControlPlane",
+						Name:       cluster.MetaData.Name + "-control-plane",
+						Namespace:  "default",
+					},
+					InfrastructureRef: k8sInfrastructureRef{
+						APIVersion: "infrastructure.cluster.konvoy.d2iq.io/v1alpha1",
+						Kind:       "PreprovisionedCluster",
+						Name:       cluster.MetaData.Name,
+						Namespace:  "default",
+					},
+				},
+			}
+
+			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
+			file, err := yaml.Marshal(&test)
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = ioutil.WriteFile(fileName, file, 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		//i'm sure there's a better way to do this
+		if resourceName == "calico-cni-"+cluster.MetaData.Name && resourceKind == "ConfigMap" {
+			test := k8sObject{}
+			test.APIVersion = "v1"
+			test.Kind = "ConfigMap"
+			test.Metadata = map[string]interface{}{"name": "calico-cni-" + cluster.MetaData.Name, "namespace": "default"}
+			test.Data = map[string]interface{}{
+				"custom-resources.yaml": "apiVersion: operator.tigera.io/v1\n" +
+					"kind: Installation\n" +
+					"metadata:\n" +
+					"  name: default\n" +
+					"spec:\n" +
+					"  # Configures Calico networking.\n" +
+					"  calicoNetwork:\n" +
+					"	# Note: The ipPools section cannot be modified post-install.\n" +
+					"	ipPools:\n" +
+					"	- blockSize: 26\n" +
+					"	  cidr: " + podSubnet + "\n" +
+					"	  encapsulation: IPIP\n" +
+					"	  natOutgoing: Enabled\n" +
+					"	  nodeSelector: all()\n" +
+					"	bgp: Enabled\n",
+			}
+			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
+			file, err := yaml.Marshal(&test)
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = ioutil.WriteFile(fileName, file, 0644)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+		}
 
 		//if this resource isn't for md-0
 		//if this resource isnt the PMT for control-plane
-		if !(strings.Contains(resourceName, "md-0") || (strings.Contains(resourceName, "-control-plane") && strings.Contains(resourceKind, "PreprovisionedMachineTemplate"))) {
+		//write this resource to its own yaml file
+		if !(strings.Contains(resourceName, "md-0") || resourceKind == "Cluster" || resourceName == "calico-cni-"+cluster.Registry.Host ||
+			(strings.Contains(resourceName, "-control-plane") && strings.Contains(resourceKind, "PreprovisionedMachineTemplate"))) {
 			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
 			file, err := yaml.Marshal(&spec)
 			if err != nil {
@@ -587,6 +735,8 @@ func initYaml() {
 			SshPrivateKey: "id_rsa",
 			InterfaceName: "ens192",
 			Loadbalancer:  "10.0.0.10",
+			PodSubnet:     "192.168.0.0/16",
+			ServiceSubnet: "10.96.0.0/12",
 		},
 		Registry: Registry{
 			Host:          "registry-1.docker.io",

@@ -15,3 +15,6 @@
 /overrides/*
 /cluster-a.yaml
 /pkd
+/pkd-linux*
+/pkd-darwin*
+/pkd-exe
