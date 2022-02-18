@@ -1,4 +1,4 @@
-# 3 Control Plane Nodes, 2 Worker Node Pools, 1 with GPUs
+## 3 Control Plane Nodes, 2 Worker Node Pools, 1 with GPUs
 
 ```yaml
 metadata:
@@ -42,7 +42,7 @@ nodepools:
 
 ```
 
-# 3 Control Plane Nodes, 1 Worker Node Pools with Docker Hub Credentials and custom Pod and Service Subnets
+## 3 Control Plane Nodes, 1 Worker Node Pools with Docker Hub Credentials and custom Pod and Service Subnets
 
 ```yaml
 metadata:
