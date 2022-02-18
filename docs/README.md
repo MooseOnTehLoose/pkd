@@ -1,10 +1,10 @@
-## docsify
+## PKD
 
 > A magical DKP On-Premise Pre-Provisioned cluster generator
 
 ## What it is
 
-Docsify generates your documentation website on the fly. Unlike GitBook, it does not generate static html files. Instead, it smartly loads and parses your Markdown files and displays them as a website. To start using it, all you need to do is create an `index.html` and [deploy it on GitHub Pages](deploy.md).
+PKD is a wrapper for the DKP and Kommander CLI tools to better enable you to build and manage clusters On Premise
 
 See the [Quick start](quickstart.md) guide for more details.
 
