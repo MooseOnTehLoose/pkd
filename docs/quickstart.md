@@ -72,3 +72,13 @@ nodepools:
 You can name your nodepools whatever you want, although DKP cli defaults to the naming convention md-<X>. 
 It may be helpful to give your GPU enabled nodes a node-pool name such as gpu-md-1
 You can have any number of nodepools to separate your workers into deployment groups but every worker must have a unique Name and IP across all nodepools!
+    
+## Deploying a DKP 2 Cluster
+Once you have customised your cluster yaml, its time to generate all resources required and then apply them to the bootstrap cluster. PKD will take care of all of this for you:
+    
+```bash 
+pkd up
+```
+When pkd up is finished, you should be left with a DKP 2.X cluster ready to use, kubectl preconfigured. You can now go on to deploying Kommander and Kaptain!
+    
+For a detailed view of whats going on under the hood, see: [PDK UP](pkdUP.md#).
