@@ -6,7 +6,9 @@
 
 PKD is a wrapper for the DKP and Kommander CLI tools to better enable you to build and manage clusters On Premise
 
-See the [Quick start](quickstart.md) guide for more details.
+See the [Quick Start](quickstart.md) guide for more details.
+
+Go straight to [PKD UP](pkdUP.md) to get a better understanding of the cluster deployment process.
 
 ## Features
 
