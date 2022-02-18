@@ -29,13 +29,10 @@ metadata:
     sshprivatekey: id_rsa
     interfacename: ens192
     loadbalancer: 10.0.0.10
-
 registry:
     host: registry-1.docker.io
     username: "password"
     password: "user"
-    auth: ""
-    identityToken: ""
 controlplane:
     hosts:
         controlplane1: 10.0.0.11
@@ -54,3 +51,24 @@ nodepools:
             registry: true
 
 ```
+
+### Metadata stores information specific to this cluster shared by all nodes:
+- name: The name of the cluster
+- sshuser: The user associated with the ssh key required for deployment
+- sshprivatekey: The ssh-key used to connect to your hosts
+- interfacename: This is used by the Control Plane Loadbalancer, it should be the value of the interface on your control planes you will use
+- loadbalancer: This should be an unused IP address in the same subnet as your Control Plane nodes
+
+### Registry stores information abouut the Docker Image Registry that you will use to pull images.
+- host: The address of the registry. Docker Hub by default
+- username: User for the Registry
+- password: Can be a password or token used to authenticate to your registry
+
+### ControlPlane stores information about your Control Plane hosts
+- hosts: This is a list of your control plane hosts. Each control plane must have a unique name
+- flags: This is a list of flags that all have a value of true or false. They default to false if not specified. 
+
+### NodePools is a list of NodePools that each have their own hosts and flags. 
+You can name your nodepools whatever you want, although DKP cli defaults to the naming convention md-<X>. 
+It may be helpful to give your GPU enabled nodes a node-pool name such as gpu-md-1
+You can have any number of nodepools to separate your workers into deployment groups but every worker must have a unique Name and IP across all nodepools!
