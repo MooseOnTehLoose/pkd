@@ -358,9 +358,10 @@ func up() {
 		}
 		resourceName := spec.Metadata["name"].(string)
 		resourceKind := spec.Kind
-		//cidr block configuration
-		if resourceName == cluster.MetaData.Name && resourceKind == "Cluster" {
+		fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
+		var file []byte
 
+		if resourceName == cluster.MetaData.Name && resourceKind == "Cluster" {
 			test := k8sCluster{
 				APIVersion: "cluster.x-k8s.io/v1alpha4",
 				Kind:       resourceKind,
@@ -402,20 +403,9 @@ func up() {
 					},
 				},
 			}
+			file, err = yaml.Marshal(&test)
 
-			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
-			file, err := yaml.Marshal(&test)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = ioutil.WriteFile(fileName, file, 0644)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-
-		//i'm sure there's a better way to do this
-		if resourceName == "calico-cni-"+cluster.MetaData.Name && resourceKind == "ConfigMap" {
+		} else if resourceName == "calico-cni-"+cluster.MetaData.Name && resourceKind == "ConfigMap" {
 			test := k8sObject{}
 			test.APIVersion = "v1"
 			test.Kind = "ConfigMap"
@@ -437,32 +427,18 @@ func up() {
 					"	  nodeSelector: all()\n" +
 					"	bgp: Enabled\n",
 			}
-			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
-			file, err := yaml.Marshal(&test)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = ioutil.WriteFile(fileName, file, 0644)
-			if err != nil {
-				log.Fatal(err)
-			}
+			file, err = yaml.Marshal(&test)
+
+		} else if !(strings.Contains(resourceName, "md-0") || (resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "PreprovisionedMachineTemplate")) {
+			file, err = yaml.Marshal(&spec)
 
 		}
-
-		//if this resource isn't for md-0
-		//if this resource isnt the PMT for control-plane
-		//write this resource to its own yaml file
-		if !(strings.Contains(resourceName, "md-0") || resourceKind == "Cluster" || resourceName == "calico-cni-"+cluster.Registry.Host ||
-			(strings.Contains(resourceName, "-control-plane") && strings.Contains(resourceKind, "PreprovisionedMachineTemplate"))) {
-			fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
-			file, err := yaml.Marshal(&spec)
-			if err != nil {
-				log.Fatal(err)
-			}
-			err = ioutil.WriteFile(fileName, file, 0644)
-			if err != nil {
-				log.Fatal(err)
-			}
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = ioutil.WriteFile(fileName, file, 0644)
+		if err != nil {
+			log.Fatal(err)
 		}
 	}
 
