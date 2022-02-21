@@ -6,6 +6,8 @@ You should ensure you have the DKP and Kommander CLI present in your working dir
 
 Grab the latest build of PKD here:
 
+https://github.com/MooseOnTehLoose/pkd/releases
+
 Move it to your working directory and make it executable:
 
 ```bash
