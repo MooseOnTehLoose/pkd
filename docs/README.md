@@ -1,15 +1,24 @@
-# PKD
+## PKD
 
-Packed with Features for DKP CLI!
+> A magical DKP On-Premise Pre-Provisioned cluster generator
 
-## Getting Started
+## What it is
 
-TODO
+PKD is a wrapper for the DKP and Kommander CLI tools to better enable you to build and manage clusters On Premise
 
-## pkd init
+See the [Quick Start](quickstart.md) guide for more details.
 
-pkd init will generate an example cluster.yaml file in the same direcotry as the cli with some default settings
+Go straight to [PKD UP](pkdUP.md) to get a better understanding of the cluster deployment process.
 
-## pkd up 
+## Features
 
-pkd up will load in a file named cluster.yaml in the same directory as the cli and generate all resources needed to deploy a DKP 2.1.1 cluster, then kick off the deployment of said cluster.
+- No more exporting shell variables
+- Single yaml file for all cluster configuration
+- PodSubnet and ServiceSubnet CIDR customization
+- Registry and GPU override integration
+- N number of NodePools supported with NodePool specific overrides
+- Separation of each object into its own yaml file to simplify manual editing 
+
+## Examples
+
+Check out the [Showcase](showcase.md) to see examples of Cluster YAML templates that can make life easier for YOU!

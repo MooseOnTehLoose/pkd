@@ -307,7 +307,7 @@ func up() {
 
 	//Create a ControlPlane PreProvisionedInventory Ojbect
 	genCPPI(cluster.MetaData, cluster.Controlplane)
-	fmt.Printf("Generated Contorl Plane PPI\n")
+	fmt.Printf("Generated Control Plane PPI\n")
 
 	//For Each NodePool, create a Preprovisioned Inventory Object
 	//mdval sets the machinedeployment name ie md-0
