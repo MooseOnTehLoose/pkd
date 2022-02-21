@@ -406,27 +406,29 @@ func up() {
 			file, err = yaml.Marshal(&test)
 
 		} else if resourceName == "calico-cni-"+cluster.MetaData.Name && resourceKind == "ConfigMap" {
+
+			customResources := "apiVersion: operator.tigera.io/v1\n" +
+				"kind: Installation\n" +
+				"metadata:\n" +
+				"  name: default\n" +
+				"spec:\n" +
+				"  # Configures Calico networking.\n" +
+				"  calicoNetwork:\n" +
+				"    # Note: The ipPools section cannot be modified post-install.\n" +
+				"    ipPools:\n" +
+				"    - blockSize: 26\n" +
+				"      cidr: " + podSubnet + "\n" +
+				"      encapsulation: IPIP\n" +
+				"      natOutgoing: Enabled\n" +
+				"      nodeSelector: all()\n" +
+				"    bgp: Enabled\n"
+
 			test := k8sObject{}
 			test.APIVersion = "v1"
 			test.Kind = "ConfigMap"
 			test.Metadata = map[string]interface{}{"name": "calico-cni-" + cluster.MetaData.Name, "namespace": "default"}
-			test.Data = map[string]interface{}{
-				"custom-resources.yaml": "apiVersion: operator.tigera.io/v1\n" +
-					"kind: Installation\n" +
-					"metadata:\n" +
-					"  name: default\n" +
-					"spec:\n" +
-					"  # Configures Calico networking.\n" +
-					"  calicoNetwork:\n" +
-					"	# Note: The ipPools section cannot be modified post-install.\n" +
-					"	ipPools:\n" +
-					"	- blockSize: 26\n" +
-					"	  cidr: " + podSubnet + "\n" +
-					"	  encapsulation: IPIP\n" +
-					"	  natOutgoing: Enabled\n" +
-					"	  nodeSelector: all()\n" +
-					"	bgp: Enabled\n",
-			}
+			test.Data = map[string]interface{}{"custom-resources.yaml": customResources}
+
 			file, err = yaml.Marshal(&test)
 
 		} else if !(strings.Contains(resourceName, "md-0") || (resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "PreprovisionedMachineTemplate")) {
