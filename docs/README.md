@@ -22,3 +22,11 @@ Go straight to [PKD UP](pkdUP.md) to get a better understanding of the cluster d
 ## Examples
 
 Check out the [Showcase](showcase.md) to see examples of Cluster YAML templates that can make life easier for YOU!
+
+## How to Contribute
+
+- Create a branch of the code
+- Install `go` on your machine
+- `git clone` your branched repo
+- Test via `go run pkd.go [command]`
+- Submit a pull request for your changes
