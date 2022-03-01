@@ -15,6 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const pkdVersion = "v0.1.0-beta.2"
+
 type Cluster struct {
 	MetaData     MetaData
 	Registry     Registry
@@ -271,6 +273,38 @@ func main() {
 			} else {
 				fmt.Println("Usage:\n  pkd merge <cluster-name>")
 			}
+		case arg1 == "version":
+
+			fmt.Println("PKD Version: " + pkdVersion)
+			//check if the dkp and kommander cli are present
+			//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+			cmd := exec.Command("./dkp", "version")
+
+			//run the command
+			output, err := cmd.CombinedOutput()
+			fmt.Println(string(output))
+			if err != nil {
+				log.Fatal(err)
+			}
+			//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+			cmd = exec.Command("./kommander", "version")
+
+			//run the command
+			output, err = cmd.CombinedOutput()
+			fmt.Println(string(output))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			//try to get their versions
+
+			// print the pkd version
+
+			// print the dkp version
+
+			//print the kommander version
+
+			//yell loudly if versions dont match
 		//no args or bad args
 		default:
 			fmt.Printf("Usage:\n" +
