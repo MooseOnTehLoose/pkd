@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -137,8 +139,8 @@ type PreprovisionedMachineTemplate struct {
 					Namespace string `yaml:"namespace"`
 				} `yaml:"inventoryRef"`
 				OverrideRef struct {
-					Name      string `yaml:"name"`
-					Namespace string `yaml:"namespace"`
+					Name string `yaml:"name"`
+					//Namespace string `yaml:"namespace"`
 				} `yaml:"overrideRef,omitempty"`
 			} `yaml:"spec"`
 		} `yaml:"template"`
@@ -168,7 +170,8 @@ type KubeadmConfigTemplate struct {
 						} `yaml:"kubeletExtraArgs"`
 					} `yaml:"nodeRegistration"`
 				} `yaml:"joinConfiguration"`
-				PreKubeadmCommands []string `yaml:"preKubeadmCommands"`
+				PreKubeadmCommands  []string `yaml:"preKubeadmCommands"`
+				PostKubeadmCommands []string `yaml:"postKubeadmCommands,omitempty"`
 			} `yaml:"spec"`
 		} `yaml:"template"`
 	} `yaml:"spec"`
@@ -225,7 +228,9 @@ type k8sInfrastructureRef struct {
 }
 
 func main() {
+
 	argNum := len(os.Args)
+	// you must run pkd with at least one argument
 	if argNum >= 2 {
 		arg1 := os.Args[1]
 
@@ -236,10 +241,11 @@ func main() {
 			initYaml()
 		//up
 		case arg1 == "up":
-			if argNum >= 3 && os.Args[2] == "dry-run" {
-				fmt.Printf("Dry Run! Creating resources to be applied via pkd apply")
+			if argNum >= 3 && os.Args[2] == "yee-haw" {
+				fmt.Println("Good Luck Cowboy!")
+				up("pause")
 			} else {
-				up()
+				up("normal")
 			}
 		//bootstrap
 		case arg1 == "bootstrap":
@@ -321,7 +327,7 @@ func main() {
 }
 
 //Read in cluster.yaml and start the cluster creation process
-func up() {
+func up(modifier string) {
 
 	//We need to generate the folder to store our k8s objects after creation
 	os.MkdirAll("resources", os.ModePerm)
@@ -356,8 +362,10 @@ func up() {
 	applyPPI(cluster.MetaData.Name)
 	fmt.Printf("Applied all PPI\n")
 
+	controlPlaneReplicas := strconv.Itoa(len(cluster.Controlplane.Hosts))
+
 	//Generate the cluster.yaml dry run output
-	dkpDryRun(cluster.MetaData.Name, cluster.MetaData.Loadbalancer, cluster.MetaData.InterfaceName)
+	dkpDryRun(cluster.MetaData.Name, cluster.MetaData.Loadbalancer, cluster.MetaData.InterfaceName, controlPlaneReplicas)
 	fmt.Printf("Dry Run Completed\n")
 
 	podSubnet := cluster.MetaData.PodSubnet
@@ -493,6 +501,30 @@ func up() {
 
 	genOverride(cluster.MetaData.Name, cluster.Registry, flagEnabled)
 	fmt.Printf("Generated All Overrides\n")
+
+	//before we apply resources check for the pause flag
+	if modifier == "pause" {
+		r := bufio.NewReader(os.Stdin)
+		fmt.Println("Pausing, you can now manually edit objects in /resources before cluster creation")
+		input := true
+		for input {
+			fmt.Printf("Ready to continue? Type y or yes to confirm: ")
+
+			res, err := r.ReadString('\n')
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Empty input (i.e. "\n")
+			if len(res) < 2 {
+				input = true
+			} else if strings.ToLower(strings.TrimSpace(res)) == "yes" || strings.ToLower(strings.TrimSpace(res)) == "y" {
+				input = false
+			}
+
+		}
+
+	}
 
 	applyResources(cluster.MetaData.Name)
 	fmt.Printf("Applied All Resources, Cluster Spinning Up\n")
@@ -935,12 +967,13 @@ func applyPPI(clusterName string) {
 	}
 }
 
-func dkpDryRun(clusterName string, clusterLoadBalancer string, interfaceName string) {
+func dkpDryRun(clusterName string, clusterLoadBalancer string, interfaceName string, controlPlaneReplicas string) {
 
 	cmd := exec.Command(
 		"./dkp", "create", "cluster", "preprovisioned",
 		"--cluster-name", clusterName,
 		"--control-plane-endpoint-host", clusterLoadBalancer,
+		"--control-plane-replicas", controlPlaneReplicas,
 		"--virtual-ip-interface", interfaceName,
 		"--dry-run", "-o", "yaml")
 
@@ -975,15 +1008,15 @@ func generateControlPlanePreprovisionedMachineTemplate(cluster Cluster) map[stri
 	switch {
 	case nodes.Flags["registry"] && nodes.Flags["gpu"]:
 		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-registry-override"
-		pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+		//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 		flagEnabled["registryGPU"] = true
 	case nodes.Flags["registry"]:
 		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-registry-override"
-		pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+		//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 		flagEnabled["registry"] = true
 	case nodes.Flags["gpu"]:
 		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-override"
-		pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+		//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 		flagEnabled["gpu"] = true
 	}
 
@@ -1012,15 +1045,15 @@ func generatePreprovisionedMachineTemplate(cluster Cluster, overrideMap map[stri
 		switch {
 		case nodes.Flags["registry"] && nodes.Flags["gpu"]:
 			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-registry-override"
-			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 			flagEnabled["registryGPU"] = true
 		case nodes.Flags["registry"]:
 			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-registry-override"
-			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 			flagEnabled["registry"] = true
 		case nodes.Flags["gpu"]:
 			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-override"
-			pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
+			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
 			flagEnabled["gpu"] = true
 		}
 
@@ -1085,6 +1118,10 @@ func generateKubeadmConfigTemplate(cluster Cluster) {
 			"systemctl restart containerd",
 			"/run/kubeadm/konvoy-set-kube-proxy-configuration.sh")
 
+		if cluster.NodePools[nodesetName].Flags["gpu"] {
+			kct.Spec.Template.Spec.PostKubeadmCommands = append(kct.Spec.Template.Spec.PostKubeadmCommands,
+				"sudo shutdown -r 5 & exit 0")
+		}
 		data, err := yaml.Marshal(&kct)
 		if err != nil {
 			log.Fatal(err)
