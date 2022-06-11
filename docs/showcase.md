@@ -1,3 +1,69 @@
+## 1 Control Plane node, 4 Worker Nodes
+
+```yaml
+metadata:
+    name: test-cluster
+    sshuser: charles
+    sshprivatekey: id_rsa
+    interfacename: ens192
+    loadbalancer: 10.4.6.40
+registry:
+    host: registry-1.docker.io
+    username: charles
+    password: banana
+controlplane:
+    hosts:
+        controlplane1: 10.4.6.41
+    flags:
+        registry: true
+nodepools:
+    md-0:
+        hosts:
+            worker1: 10.4.6.44
+            worker2: 10.4.6.45
+            worker3: 10.4.6.46
+            worker4: 10.4.6.47
+        flags:
+            registry: true
+
+```
+
+## 5 Control Plane nodes, 6 Worker Nodes
+
+```yaml
+metadata:
+    name: test-cluster
+    sshuser: charles
+    sshprivatekey: id_rsa
+    interfacename: ens192
+    loadbalancer: 10.4.6.40
+registry:
+    host: registry-1.docker.io
+    username: charles
+    password: banana
+controlplane:
+    hosts:
+        controlplane1: 10.4.6.41
+        controlplane2: 10.4.6.42
+        controlplane3: 10.4.6.43
+        controlplane4: 10.4.6.44
+        controlplane5: 10.4.6.45
+    flags:
+        registry: true
+nodepools:
+    md-0:
+        hosts:
+            worker1: 10.4.6.46
+            worker2: 10.4.6.47
+            worker3: 10.4.6.48
+            worker4: 10.4.6.49
+            worker5: 10.4.6.50
+            worker6: 10.4.6.51
+        flags:
+            registry: true
+
+```
+
 ## 3 Control Plane Nodes, 2 Worker Node Pools, 1 with GPUs
 
 ```yaml

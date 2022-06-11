@@ -82,5 +82,13 @@ Once you have customised your cluster yaml, its time to generate all resources r
 pkd up
 ```
 When pkd up is finished, you should be left with a DKP 2.X cluster ready to use, kubectl preconfigured. You can now go on to deploying Kommander and Kaptain!
-    
+
 For a detailed view of whats going on under the hood, see: [PDK UP](pkdUP.md#).
+
+New in v0.1.0-beta.2 is a cowboy mode for anybody who wants to manually edit the objects under /resources before they are applied. You can manually customize PKD for any feature it doesn't yet support automating. 
+    
+```bash
+pkd up yee-haw
+```
+   
+Good Luck Cowboy!
