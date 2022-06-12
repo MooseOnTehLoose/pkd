@@ -17,7 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const pkdVersion = "v0.1.0-beta.2"
+const pkdVersion = "v0.2.0-2.2.0-beta1"
 
 func main() {
 
@@ -148,6 +148,11 @@ func up(modifier string) {
 
 	controlPlaneReplicas := strconv.Itoa(len(cluster.Controlplane.Hosts))
 
+	//there is a bug in dkp 2.2.X, you must use 3 control planes then fix the object after dry run
+	if controlPlaneReplicas == "1" {
+		controlPlaneReplicas = "3"
+	}
+
 	//Generate the cluster.yaml dry run output
 	dkpDryRun(cluster.MetaData.Name, cluster.MetaData.Loadbalancer, cluster.MetaData.InterfaceName, controlPlaneReplicas)
 	fmt.Printf("Dry Run Completed\n")
@@ -170,6 +175,7 @@ func up(modifier string) {
 	}
 	dryRunDecoder := yaml.NewDecoder(dryRunOutput)
 
+	// for each object in dry run, read it and convert to single file
 	for {
 		spec := new(k8sObject)
 		err := dryRunDecoder.Decode(&spec)
@@ -257,7 +263,9 @@ func up(modifier string) {
 
 			file, err = yaml.Marshal(&test)
 
-		} else if !(strings.Contains(resourceName, "md-0") || (resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "PreprovisionedMachineTemplate")) {
+		} else if !(strings.Contains(resourceName, "md-0") ||
+			(resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "PreprovisionedMachineTemplate") ||
+			(resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "KubeadmControlPlane")) {
 			file, err = yaml.Marshal(&spec)
 
 		}
@@ -270,11 +278,7 @@ func up(modifier string) {
 		}
 	}
 
-	//delete the Dry Run cluster YAML after we're done with it
-	err = os.Remove(cluster.MetaData.Name + ".yaml")
-	if err != nil {
-		log.Fatal(err)
-	}
+	generateKubeadmControlPlane(cluster)
 
 	//If anything sets a flag to true, generate an override for it
 	flagEnabled := generateControlPlanePreprovisionedMachineTemplate(cluster)
@@ -308,6 +312,13 @@ func up(modifier string) {
 
 		}
 
+	}
+
+	//delete the Dry Run cluster YAML after we're done with it
+	//Moved till after the pause window in case you need to check it
+	err = os.Remove(cluster.MetaData.Name + ".yaml")
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	applyResources(cluster.MetaData.Name)
@@ -777,189 +788,6 @@ func dkpDryRun(clusterName string, clusterLoadBalancer string, interfaceName str
 	}
 }
 
-func generateControlPlanePreprovisionedMachineTemplate(cluster Cluster) map[string]bool {
-
-	flagEnabled := map[string]bool{"registry": false, "gpu": false, "registryGPU": false}
-	nodesetName := "control-plane"
-	nodes := cluster.Controlplane
-	pmt := PreprovisionedMachineTemplate{}
-	pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
-	pmt.Kind = "PreprovisionedMachineTemplate"
-	pmt.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-	pmt.Metadata.Namespace = "default"
-	pmt.Spec.Template.Spec.InventoryRef.Name = cluster.MetaData.Name + "-" + nodesetName
-	pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
-	switch {
-	case nodes.Flags["registry"] && nodes.Flags["gpu"]:
-		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-registry-override"
-		//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-		flagEnabled["registryGPU"] = true
-	case nodes.Flags["registry"]:
-		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-registry-override"
-		//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-		flagEnabled["registry"] = true
-	case nodes.Flags["gpu"]:
-		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-override"
-		//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-		flagEnabled["gpu"] = true
-	}
-
-	data, err := yaml.Marshal(&pmt)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return flagEnabled
-}
-
-func generatePreprovisionedMachineTemplate(cluster Cluster, overrideMap map[string]bool) map[string]bool {
-	flagEnabled := overrideMap
-	for nodesetName, nodes := range cluster.NodePools {
-		pmt := PreprovisionedMachineTemplate{}
-		pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
-		pmt.Kind = "PreprovisionedMachineTemplate"
-		pmt.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-		pmt.Metadata.Namespace = "default"
-		pmt.Spec.Template.Spec.InventoryRef.Name = cluster.MetaData.Name + "-" + nodesetName
-		pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
-		switch {
-		case nodes.Flags["registry"] && nodes.Flags["gpu"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-registry-override"
-			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			flagEnabled["registryGPU"] = true
-		case nodes.Flags["registry"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-registry-override"
-			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			flagEnabled["registry"] = true
-		case nodes.Flags["gpu"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-override"
-			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			flagEnabled["gpu"] = true
-		}
-
-		data, err := yaml.Marshal(&pmt)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-	}
-	return flagEnabled
-}
-
-func generateKubeadmConfigTemplate(cluster Cluster) {
-	for nodesetName := range cluster.NodePools {
-
-		kctStr1 := "#!/bin/bash\n" +
-			"for i in $(ls /run/kubeadm/ | grep 'kubeadm.yaml\\|kubeadm-join-config.yaml'); do\n" +
-			"  cat <<EOF>> \"/run/kubeadm//$i\"\n" +
-			"---\n" +
-			"kind: KubeProxyConfiguration\n" +
-			"apiVersion: kubeproxy.config.k8s.io/v1alpha1\n" +
-			"metricsBindAddress: \"0.0.0.0:10249\"\n" +
-			"EOF\n" +
-			"done"
-
-		kctStr2 := "[metrics]\n" +
-			"  address = \"0.0.0.0:1338\"\n" +
-			"  grpc_histogram = false"
-
-		kct := KubeadmConfigTemplate{}
-		kct.APIVersion = "bootstrap.cluster.x-k8s.io/v1alpha4"
-		kct.Kind = "KubeadmConfigTemplate"
-		kct.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-		kct.Metadata.Namespace = "default"
-		kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
-			Content     string "yaml:\"content\""
-			Path        string "yaml:\"path\""
-			Permissions string "yaml:\"permissions\""
-		}{
-			Content:     kctStr1,
-			Path:        "/run/kubeadm/konvoy-set-kube-proxy-configuration.sh",
-			Permissions: "0700",
-		})
-		kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
-			Content     string "yaml:\"content\""
-			Path        string "yaml:\"path\""
-			Permissions string "yaml:\"permissions\""
-		}{
-			Content:     kctStr2,
-			Path:        "/etc/containerd/conf.d/konvoy-metrics.toml",
-			Permissions: "0644",
-		})
-		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
-		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
-		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
-		kct.Spec.Template.Spec.PreKubeadmCommands = append(kct.Spec.Template.Spec.PreKubeadmCommands,
-			"systemctl daemon-reload",
-			"systemctl restart containerd",
-			"/run/kubeadm/konvoy-set-kube-proxy-configuration.sh")
-
-		if cluster.NodePools[nodesetName].Flags["gpu"] {
-			kct.Spec.Template.Spec.PostKubeadmCommands = append(kct.Spec.Template.Spec.PostKubeadmCommands,
-				"sudo shutdown -r 5 & exit 0")
-		}
-		data, err := yaml.Marshal(&kct)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-KubeadmConfigTemplate.yaml", data, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-}
-
-func generateMachineDeployment(cluster Cluster) {
-
-	for nodesetName, nodes := range cluster.NodePools {
-
-		md := MachineDeployment{}
-		md.APIVersion = "cluster.x-k8s.io/v1alpha4"
-		md.Kind = "MachineDeployment"
-		md.Metadata.Labels.ClusterXK8SIoClusterName = cluster.MetaData.Name
-		md.Metadata.Name = cluster.MetaData.Name + "-" + nodesetName
-		md.Metadata.Namespace = "default"
-		md.Spec.ClusterName = cluster.MetaData.Name
-		md.Spec.MinReadySeconds = 0
-		md.Spec.ProgressDeadlineSeconds = 600
-		md.Spec.Replicas = len(nodes.Hosts)
-		md.Spec.RevisionHistoryLimit = 1
-		md.Spec.Selector.MatchLabels.ClusterXK8SIoClusterName = cluster.MetaData.Name
-		md.Spec.Selector.MatchLabels.ClusterXK8SIoDeploymentName = cluster.MetaData.Name + "-" + nodesetName
-		md.Spec.Strategy.RollingUpdate.MaxSurge = 1
-		md.Spec.Strategy.RollingUpdate.MaxUnavailable = 0
-		md.Spec.Strategy.Type = "RollingUpdate"
-		md.Spec.Template.Metadata.Labels.ClusterXK8SIoClusterName = cluster.MetaData.Name
-		md.Spec.Template.Metadata.Labels.ClusterXK8SIoDeploymentName = cluster.MetaData.Name + "-" + nodesetName
-		md.Spec.Template.Spec.Bootstrap.ConfigRef.APIVersion = "bootstrap.cluster.x-k8s.io/v1alpha4"
-		md.Spec.Template.Spec.Bootstrap.ConfigRef.Kind = "KubeadmConfigTemplate"
-		md.Spec.Template.Spec.Bootstrap.ConfigRef.Name = cluster.MetaData.Name + "-" + nodesetName
-		md.Spec.Template.Spec.ClusterName = cluster.MetaData.Name
-		md.Spec.Template.Spec.InfrastructureRef.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
-		md.Spec.Template.Spec.InfrastructureRef.Kind = "PreprovisionedMachineTemplate"
-		md.Spec.Template.Spec.InfrastructureRef.Name = cluster.MetaData.Name + "-" + nodesetName
-		md.Spec.Template.Spec.Version = "v1.21.6"
-
-		data, err := yaml.Marshal(&md)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-MachineDeployment.yaml", data, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-	}
-}
-
 func applyResources(clusterName string) {
 	err := filepath.Walk("./resources/", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -967,8 +795,9 @@ func applyResources(clusterName string) {
 			return err
 		}
 		if !strings.Contains(path, "-PreprovisionedInventory.yaml") && strings.Contains(path, clusterName) {
-			//kubectl apply -f <cluster-name>-PreProvisionedInventory.yaml
-			cmd := exec.Command("kubectl", "apply", "-f", path)
+			//kubectl create -f <cluster-name>-PreProvisionedInventory.yaml
+			//changed from apply to create because tigera throws an error via apply, too big
+			cmd := exec.Command("kubectl", "create", "-f", path)
 			//run the command
 			output, err := cmd.CombinedOutput()
 			fmt.Println(string(output))

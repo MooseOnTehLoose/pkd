@@ -28,28 +28,132 @@ type Registry struct {
 	Auth          string `yaml:"auth"`
 	IdentityToken string `yaml:"identityToken"`
 }
-type RegistryOverride struct {
-	ImageRegistriesWithAuth []Registry `yaml:"image_registries_with_auth"`
+
+type KubeadmControlPlane struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
+	} `yaml:"metadata"`
+	Spec struct {
+		KubeadmConfigSpec struct {
+			ClusterConfiguration struct {
+				APIServer struct {
+					ExtraArgs struct {
+						AuditLogMaxage           string `yaml:"audit-log-maxage"`
+						AuditLogMaxbackup        string `yaml:"audit-log-maxbackup"`
+						AuditLogMaxsize          string `yaml:"audit-log-maxsize"`
+						AuditLogPath             string `yaml:"audit-log-path"`
+						AuditPolicyFile          string `yaml:"audit-policy-file"`
+						CloudProvider            string `yaml:"cloud-provider"`
+						EncryptionProviderConfig string `yaml:"encryption-provider-config"`
+					} `yaml:"extraArgs"`
+					ExtraVolumes []struct {
+						HostPath  string `yaml:"hostPath"`
+						MountPath string `yaml:"mountPath"`
+						Name      string `yaml:"name"`
+					} `yaml:"extraVolumes"`
+				} `yaml:"apiServer"`
+				ControllerManager struct {
+					ExtraArgs struct {
+						CloudProvider       string `yaml:"cloud-provider"`
+						FlexVolumePluginDir string `yaml:"flex-volume-plugin-dir"`
+					} `yaml:"extraArgs"`
+				} `yaml:"controllerManager"`
+				DNS struct {
+				} `yaml:"dns"`
+				Etcd struct {
+					Local struct {
+						ImageTag string `yaml:"imageTag"`
+					} `yaml:"local"`
+				} `yaml:"etcd"`
+				Networking struct {
+				} `yaml:"networking"`
+				Scheduler struct {
+				} `yaml:"scheduler"`
+			} `yaml:"clusterConfiguration"`
+			Files []struct {
+				Content     string `yaml:"content,omitempty"`
+				Path        string `yaml:"path"`
+				Permissions string `yaml:"permissions"`
+				ContentFrom struct {
+					Secret struct {
+						Key  string `yaml:"key"`
+						Name string `yaml:"name"`
+					} `yaml:"secret"`
+				} `yaml:"contentFrom,omitempty"`
+				Owner string `yaml:"owner,omitempty"`
+			} `yaml:"files"`
+			Format            string `yaml:"format"`
+			InitConfiguration struct {
+				LocalAPIEndpoint struct {
+				} `yaml:"localAPIEndpoint"`
+				NodeRegistration struct {
+					CriSocket        string `yaml:"criSocket"`
+					KubeletExtraArgs struct {
+						CloudProvider   string `yaml:"cloud-provider"`
+						VolumePluginDir string `yaml:"volume-plugin-dir"`
+					} `yaml:"kubeletExtraArgs"`
+				} `yaml:"nodeRegistration"`
+			} `yaml:"initConfiguration"`
+			JoinConfiguration struct {
+				Discovery struct {
+				} `yaml:"discovery"`
+				NodeRegistration struct {
+					CriSocket        string `yaml:"criSocket"`
+					KubeletExtraArgs struct {
+						CloudProvider   string `yaml:"cloud-provider"`
+						VolumePluginDir string `yaml:"volume-plugin-dir"`
+					} `yaml:"kubeletExtraArgs"`
+				} `yaml:"nodeRegistration"`
+			} `yaml:"joinConfiguration"`
+			PreKubeadmCommands []string `yaml:"preKubeadmCommands"`
+		} `yaml:"kubeadmConfigSpec"`
+		MachineTemplate struct {
+			InfrastructureRef struct {
+				APIVersion string `yaml:"apiVersion"`
+				Kind       string `yaml:"kind"`
+				Name       string `yaml:"name"`
+				Namespace  string `yaml:"namespace"`
+			} `yaml:"infrastructureRef"`
+			Metadata struct {
+			} `yaml:"metadata"`
+		} `yaml:"machineTemplate"`
+		Replicas        int `yaml:"replicas"`
+		RolloutStrategy struct {
+			RollingUpdate struct {
+				MaxSurge int `yaml:"maxSurge,omitempty"`
+			} `yaml:"rollingUpdate,omitempty"`
+			Type string `yaml:"type,omitempty"`
+		} `yaml:"rolloutStrategy,omitempty"`
+		Version string `yaml:"version"`
+	} `yaml:"spec"`
 }
-type GpuOverride struct {
-	Gpu struct {
-		Types []string `yaml:"types"`
-	} `yaml:"gpu"`
-	BuildNameExtra string `yaml:"build_name_extra"`
+
+type PreprovisionedMachineTemplate struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Template struct {
+			Spec struct {
+				InventoryRef struct {
+					Name      string `yaml:"name"`
+					Namespace string `yaml:"namespace"`
+				} `yaml:"inventoryRef"`
+				OverrideRef struct {
+					Name string `yaml:"name"`
+					//Namespace string `yaml:"namespace"`
+				} `yaml:"overrideRef,omitempty"`
+			} `yaml:"spec"`
+		} `yaml:"template"`
+	} `yaml:"spec"`
 }
-type GpuRegOverride struct {
-	Gpu struct {
-		Types []string `yaml:"types"`
-	} `yaml:"gpu"`
-	BuildNameExtra          string `yaml:"build_name_extra"`
-	ImageRegistriesWithAuth []struct {
-		Host          string `yaml:"host"`
-		Username      string `yaml:"username"`
-		Password      string `yaml:"password"`
-		Auth          string `yaml:"auth"`
-		IdentityToken string `yaml:"identityToken"`
-	} `yaml:"image_registries_with_auth"`
-}
+
 type MachineDeployment struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
@@ -105,28 +209,7 @@ type MachineDeployment struct {
 		} `yaml:"template"`
 	} `yaml:"spec"`
 }
-type PreprovisionedMachineTemplate struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name      string `yaml:"name"`
-		Namespace string `yaml:"namespace"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Template struct {
-			Spec struct {
-				InventoryRef struct {
-					Name      string `yaml:"name"`
-					Namespace string `yaml:"namespace"`
-				} `yaml:"inventoryRef"`
-				OverrideRef struct {
-					Name string `yaml:"name"`
-					//Namespace string `yaml:"namespace"`
-				} `yaml:"overrideRef,omitempty"`
-			} `yaml:"spec"`
-		} `yaml:"template"`
-	} `yaml:"spec"`
-}
+
 type KubeadmConfigTemplate struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
@@ -142,6 +225,7 @@ type KubeadmConfigTemplate struct {
 					Path        string `yaml:"path"`
 					Permissions string `yaml:"permissions"`
 				} `yaml:"files"`
+				Format            string `yaml:"format"`
 				JoinConfiguration struct {
 					NodeRegistration struct {
 						CriSocket        string `yaml:"criSocket"`
@@ -157,6 +241,8 @@ type KubeadmConfigTemplate struct {
 		} `yaml:"template"`
 	} `yaml:"spec"`
 }
+
+//this class is used to read in a generic k8s object from the dry run output. We don't know what it will be until we look
 type k8sObject struct {
 	APIVersion string                 `yaml:"apiVersion,omitempty"`
 	Kind       string                 `yaml:"kind,omitempty"`
@@ -206,4 +292,27 @@ type k8sInfrastructureRef struct {
 	Kind       string `yaml:"kind"`
 	Name       string `yaml:"name"`
 	Namespace  string `yaml:"namespace"`
+}
+
+type RegistryOverride struct {
+	ImageRegistriesWithAuth []Registry `yaml:"image_registries_with_auth"`
+}
+type GpuOverride struct {
+	Gpu struct {
+		Types []string `yaml:"types"`
+	} `yaml:"gpu"`
+	BuildNameExtra string `yaml:"build_name_extra"`
+}
+type GpuRegOverride struct {
+	Gpu struct {
+		Types []string `yaml:"types"`
+	} `yaml:"gpu"`
+	BuildNameExtra          string `yaml:"build_name_extra"`
+	ImageRegistriesWithAuth []struct {
+		Host          string `yaml:"host"`
+		Username      string `yaml:"username"`
+		Password      string `yaml:"password"`
+		Auth          string `yaml:"auth"`
+		IdentityToken string `yaml:"identityToken"`
+	} `yaml:"image_registries_with_auth"`
 }
