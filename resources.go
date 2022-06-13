@@ -11,15 +11,16 @@ type NodePool struct {
 	Flags map[string]bool
 }
 type MetaData struct {
-	Name          string `yaml:"name"`
-	SshUser       string `yaml:"sshuser"`
-	SshPrivateKey string `yaml:"sshprivatekey"`
-	InterfaceName string `yaml:"interfacename"`
-	Loadbalancer  string `yaml:"loadbalancer"`
-	KIBTimeout    string `yaml:"kibtimeout"`
-	PivotTimeout  string `yaml:"pivottimeout"`
-	PodSubnet     string `yaml:"podsubnet"`
-	ServiceSubnet string `yaml:"servicesubnet"`
+	Name             string `yaml:"name"`
+	SshUser          string `yaml:"sshuser"`
+	SshPrivateKey    string `yaml:"sshprivatekey"`
+	InterfaceName    string `yaml:"interfacename"`
+	Loadbalancer     string `yaml:"loadbalancer"`
+	KIBTimeout       string `yaml:"kibtimeout"`
+	PivotTimeout     string `yaml:"pivottimeout"`
+	PodSubnet        string `yaml:"podsubnet"`
+	ServiceSubnet    string `yaml:"servicesubnet"`
+	MetalLBAddresses string `yaml:"metallbaddresses"`
 }
 type Registry struct {
 	Host          string `yaml:"host"`
@@ -240,6 +241,18 @@ type KubeadmConfigTemplate struct {
 			} `yaml:"spec"`
 		} `yaml:"template"`
 	} `yaml:"spec"`
+}
+
+type mlbConfigMap struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Namespace string `yaml:"namespace"`
+		Name      string `yaml:"name"`
+	} `yaml:"metadata"`
+	Data struct {
+		Config string `yaml:"config"`
+	} `yaml:"data"`
 }
 
 //this class is used to read in a generic k8s object from the dry run output. We don't know what it will be until we look

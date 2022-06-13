@@ -29,7 +29,7 @@ func main() {
 		switch {
 		//init
 		case arg1 == "init":
-			fmt.Printf("Generating cluster.yaml")
+			fmt.Println("Generating cluster.yaml")
 			initYaml()
 		case arg1 == "airgap":
 			fmt.Printf("Downloading and Seeding all Air Gap Resources")
@@ -347,6 +347,10 @@ func up(modifier string) {
 
 	mergeKubeconfig(cluster.MetaData.Name)
 	fmt.Printf("Merged the Kubeconfig\n")
+
+	generateMlbConfigMap(cluster)
+	fmt.Printf("Applied Metal-LB ConfigMap\n")
+
 }
 
 func genOverride(clusterName string, registryInfo Registry, flags map[string]bool) {
@@ -569,13 +573,14 @@ func loadCluster() Cluster {
 func initYaml() {
 	initcluster := Cluster{
 		MetaData: MetaData{
-			Name:          "cluster-name",
-			SshUser:       "user",
-			SshPrivateKey: "id_rsa",
-			InterfaceName: "ens192",
-			Loadbalancer:  "10.0.0.10",
-			PodSubnet:     "192.168.0.0/16",
-			ServiceSubnet: "10.96.0.0/12",
+			Name:             "cluster-name",
+			SshUser:          "user",
+			SshPrivateKey:    "id_rsa",
+			InterfaceName:    "ens192",
+			Loadbalancer:     "10.0.0.10",
+			PodSubnet:        "192.168.0.0/16",
+			ServiceSubnet:    "10.96.0.0/12",
+			MetalLBAddresses: "10.0.0.20-10.0.0.24",
 		},
 		Registry: Registry{
 			Host:          "registry-1.docker.io",
@@ -839,8 +844,8 @@ func waitForClusterReady(clusterName string, kibTimeout string) {
 func pivotCluster(clusterName string, pivotTimeout string) {
 	//#Pivot to the new cluster
 
-	//./dkp create bootstrap controllers --kubeconfig ${CLUSTER_NAME}.conf
-	cmd := exec.Command("./dkp", "create", "bootstrap", "controllers", "--kubeconfig", clusterName+".conf")
+	// ./dkp create capi-components --kubeconfig ${CLUSTER_NAME}.conf
+	cmd := exec.Command("./dkp", "create", "capi-components", "--kubeconfig", clusterName+".conf")
 
 	//run the command
 	output, err := cmd.CombinedOutput()
@@ -849,8 +854,8 @@ func pivotCluster(clusterName string, pivotTimeout string) {
 		log.Fatal(err)
 	}
 
-	//./dkp move --to-kubeconfig ${CLUSTER_NAME}.conf
-	cmd = exec.Command("./dkp", "move", "--to-kubeconfig", clusterName+".conf")
+	// ./dkp move capi-resources --to-kubeconfig ${CLUSTER_NAME}.conf
+	cmd = exec.Command("./dkp", "move", "capi-resources", "--to-kubeconfig", clusterName+".conf")
 
 	output, err = cmd.CombinedOutput()
 	fmt.Println(string(output))

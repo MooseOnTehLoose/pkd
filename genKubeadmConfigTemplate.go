@@ -47,6 +47,7 @@ func generateKubeadmConfigTemplate(cluster Cluster) {
 			Path:        "/etc/containerd/conf.d/konvoy-metrics.toml",
 			Permissions: "0644",
 		})
+		kct.Spec.Template.Spec.Format = "cloud-config"
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
