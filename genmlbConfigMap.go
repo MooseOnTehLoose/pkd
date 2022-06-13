@@ -32,9 +32,8 @@ func generateMlbConfigMap(cluster Cluster) {
 		log.Fatal(err)
 	}
 
-	//kubectl create -f <cluster-name>-PreProvisionedInventory.yaml
-	//changed from apply to create because tigera throws an error via apply, too big
-	cmd := exec.Command("kubectl", "create", "-f", "resources/"+cluster.MetaData.Name+"-Metal-LB-ConfigMap.yaml")
+	//manually specifying the kubeconfig because PKD isn't picking up on the merged kubeconfig for some reason
+	cmd := exec.Command("kubectl", "create", "-f", "resources/"+cluster.MetaData.Name+"-Metal-LB-ConfigMap.yaml", "--kubeconfig="+cluster.MetaData.Name+".conf")
 	//run the command
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
