@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateMlbConfigMap(cluster Cluster) {
+func generateMlbConfigMap(cluster pkdCluster) {
 
 	mlb := mlbConfigMap{}
 	mlb.APIVersion = "v1"
@@ -21,7 +21,7 @@ func generateMlbConfigMap(cluster Cluster) {
 			"- name: default\n" +
 			"  protocol: layer2\n" +
 			"  addresses:\n" +
-			"  - " + cluster.MetaData.MetalLBAddresses
+			"  - " + cluster.MetaData.MetalAddressRange
 
 	data, err := yaml.Marshal(&mlb)
 	if err != nil {
@@ -32,8 +32,7 @@ func generateMlbConfigMap(cluster Cluster) {
 		log.Fatal(err)
 	}
 
-	//manually specifying the kubeconfig because PKD isn't picking up on the merged kubeconfig for some reason
-	cmd := exec.Command("kubectl", "create", "-f", "resources/"+cluster.MetaData.Name+"-Metal-LB-ConfigMap.yaml", "--kubeconfig="+cluster.MetaData.Name+".conf")
+	cmd := exec.Command("kubectl", "create", "-f", "resources/"+cluster.MetaData.Name+"-Metal-LB-ConfigMap.yaml")
 	//run the command
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))

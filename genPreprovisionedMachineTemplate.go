@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generatePreprovisionedMachineTemplate(cluster Cluster, overrideMap map[string]bool) map[string]bool {
+func generatePreprovisionedMachineTemplate(cluster pkdCluster, overrideMap map[string]bool) map[string]bool {
 	flagEnabled := overrideMap
 	for nodesetName, nodes := range cluster.NodePools {
 		pmt := PreprovisionedMachineTemplate{}

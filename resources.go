@@ -1,6 +1,6 @@
 package main
 
-type Cluster struct {
+type pkdCluster struct {
 	MetaData     MetaData
 	Registry     Registry
 	Controlplane NodePool
@@ -11,16 +11,16 @@ type NodePool struct {
 	Flags map[string]bool
 }
 type MetaData struct {
-	Name             string `yaml:"name"`
-	SshUser          string `yaml:"sshuser"`
-	SshPrivateKey    string `yaml:"sshprivatekey"`
-	InterfaceName    string `yaml:"interfacename"`
-	Loadbalancer     string `yaml:"loadbalancer"`
-	KIBTimeout       string `yaml:"kibtimeout"`
-	PivotTimeout     string `yaml:"pivottimeout"`
-	PodSubnet        string `yaml:"podsubnet"`
-	ServiceSubnet    string `yaml:"servicesubnet"`
-	MetalLBAddresses string `yaml:"metallbaddresses"`
+	Name                string `yaml:"name"`
+	SshUser             string `yaml:"sshuser"`
+	SshPrivateKey       string `yaml:"sshprivatekey"`
+	InterfaceName       string `yaml:"interfacename"`
+	KubeVipLoadbalancer string `yaml:"kubeviploadbalancer"`
+	KIBTimeout          string `yaml:"kibtimeout"`
+	PivotTimeout        string `yaml:"pivottimeout"`
+	PodSubnet           string `yaml:"podsubnet"`
+	ServiceSubnet       string `yaml:"servicesubnet"`
+	MetalAddressRange   string `yaml:"metaladdressrange"`
 }
 type Registry struct {
 	Host          string `yaml:"host"`
@@ -255,6 +255,49 @@ type mlbConfigMap struct {
 	} `yaml:"data"`
 }
 
+type capiCluster struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Labels struct {
+			KonvoyD2IqIoClusterName  string `yaml:"konvoy.d2iq.io/cluster-name"`
+			KonvoyD2IqIoCni          string `yaml:"konvoy.d2iq.io/cni"`
+			KonvoyD2IqIoCsi          string `yaml:"konvoy.d2iq.io/csi"`
+			KonvoyD2IqIoLoadbalancer string `yaml:"konvoy.d2iq.io/loadbalancer"`
+			KonvoyD2IqIoOsHint       string `yaml:"konvoy.d2iq.io/osHint"`
+			KonvoyD2IqIoProvider     string `yaml:"konvoy.d2iq.io/provider"`
+		} `yaml:"labels"`
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
+	} `yaml:"metadata"`
+	Spec struct {
+		ClusterNetwork struct {
+			Pods struct {
+				CidrBlocks []string `yaml:"cidrBlocks"`
+			} `yaml:"pods"`
+			Services struct {
+				CidrBlocks []string `yaml:"cidrBlocks"`
+			} `yaml:"services"`
+		} `yaml:"clusterNetwork"`
+		ControlPlaneEndpoint struct {
+			Host string `yaml:"host"`
+			Port int    `yaml:"port"`
+		} `yaml:"controlPlaneEndpoint"`
+		ControlPlaneRef struct {
+			APIVersion string `yaml:"apiVersion"`
+			Kind       string `yaml:"kind"`
+			Name       string `yaml:"name"`
+			Namespace  string `yaml:"namespace"`
+		} `yaml:"controlPlaneRef"`
+		InfrastructureRef struct {
+			APIVersion string `yaml:"apiVersion"`
+			Kind       string `yaml:"kind"`
+			Name       string `yaml:"name"`
+			Namespace  string `yaml:"namespace"`
+		} `yaml:"infrastructureRef"`
+	} `yaml:"spec"`
+}
+
 //this class is used to read in a generic k8s object from the dry run output. We don't know what it will be until we look
 type k8sObject struct {
 	APIVersion string                 `yaml:"apiVersion,omitempty"`
@@ -262,49 +305,6 @@ type k8sObject struct {
 	Metadata   map[string]interface{} `yaml:"metadata,omitempty"`
 	Spec       map[string]interface{} `yaml:"spec,omitempty"`
 	Data       map[string]interface{} `yaml:"data,omitempty"`
-}
-type k8sCluster struct {
-	APIVersion string             `yaml:"apiVersion"`
-	Kind       string             `yaml:"kind"`
-	MetaData   k8sClusterMetadata `yaml:"metadata"`
-	Spec       k8sClusterSpec     `yaml:"spec"`
-}
-type k8sClusterMetadata struct {
-	Labels    map[string]string `yaml:"labels"`
-	Name      string            `yaml:"name"`
-	Namespace string            `yaml:"namespace"`
-}
-type k8sClusterSpec struct {
-	ClusterNetwork       k8sClusterClusterNetwork `yaml:"clusterNetwork"`
-	ControlPlaneEndpoint k8sControlPlaneEndpoint  `yaml:"controlPlaneEndpoint"`
-	ControlPlaneRef      k8sControlPlaneRef       `yaml:"controlPlaneRef"`
-	InfrastructureRef    k8sInfrastructureRef     `yaml:"infrastructureRef"`
-}
-type k8sClusterClusterNetwork struct {
-	Pods     k8sPods     `yaml:"pods"`
-	Services k8sServices `yaml:"services"`
-}
-type k8sPods struct {
-	CidrBlocks []string `yaml:"cidrBlocks"`
-}
-type k8sServices struct {
-	CidrBlocks []string `yaml:"cidrBlocks"`
-}
-type k8sControlPlaneEndpoint struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
-}
-type k8sControlPlaneRef struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Name       string `yaml:"name"`
-	Namespace  string `yaml:"namespace"`
-}
-type k8sInfrastructureRef struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Name       string `yaml:"name"`
-	Namespace  string `yaml:"namespace"`
 }
 
 type RegistryOverride struct {

@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateControlPlanePreprovisionedMachineTemplate(cluster Cluster) map[string]bool {
+func generateControlPlanePreprovisionedMachineTemplate(cluster pkdCluster) map[string]bool {
 
 	flagEnabled := map[string]bool{"registry": false, "gpu": false, "registryGPU": false}
 	nodesetName := "control-plane"

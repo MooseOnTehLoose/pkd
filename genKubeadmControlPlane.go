@@ -9,7 +9,7 @@ import (
 )
 
 //if 1 CP use alternate structure, otherwise just generate from defaults
-func generateKubeadmControlPlane(cluster Cluster) {
+func generateKubeadmControlPlane(cluster pkdCluster) {
 	controlPlaneReplicas := strconv.Itoa(len(cluster.Controlplane.Hosts))
 	kcp := KubeadmControlPlane{}
 	kcp.APIVersion = "controlplane.cluster.x-k8s.io/v1beta1"

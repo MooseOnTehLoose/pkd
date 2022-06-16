@@ -119,12 +119,22 @@ func up(modifier string) {
 	os.MkdirAll("overrides", os.ModePerm)
 	fmt.Printf("Created overrides directory\n")
 
+	//people tend to forget to delete their bootstrap clusters
+	//we should probably ask before deleting in a future release
 	bootstrap("down")
 	bootstrap("up")
 
 	//This loads the user customizable values to generate a cluster from cluster.yaml
 	cluster := loadCluster()
 	fmt.Printf("Cluster YAML loaded into PKD\n")
+
+	//set defaults if not specified in cluster.yaml
+	if cluster.MetaData.PodSubnet == "" {
+		cluster.MetaData.PodSubnet = "192.168.0.0/16"
+	}
+	if cluster.MetaData.ServiceSubnet == "" {
+		cluster.MetaData.ServiceSubnet = "10.96.0.0/12"
+	}
 
 	createSSHSecret(cluster.MetaData.Name, cluster.MetaData.SshPrivateKey)
 	fmt.Printf("Created SSH Secret\n")
@@ -135,7 +145,6 @@ func up(modifier string) {
 
 	//For Each NodePool, create a Preprovisioned Inventory Object
 	//mdval sets the machinedeployment name ie md-0
-
 	for nodesetName, nodes := range cluster.NodePools {
 		genPPI(cluster.MetaData, nodes, nodesetName)
 		fmt.Printf("Generated " + nodesetName + " PPI\n")
@@ -149,24 +158,14 @@ func up(modifier string) {
 	controlPlaneReplicas := strconv.Itoa(len(cluster.Controlplane.Hosts))
 
 	//there is a bug in dkp 2.2.X, you must use 3 control planes then fix the object after dry run
+	//this needs to be removed in a future version of PKD, once this bug is fixed in an official release
 	if controlPlaneReplicas == "1" {
 		controlPlaneReplicas = "3"
 	}
 
 	//Generate the cluster.yaml dry run output
-	dkpDryRun(cluster.MetaData.Name, cluster.MetaData.Loadbalancer, cluster.MetaData.InterfaceName, controlPlaneReplicas)
+	dkpDryRun(cluster.MetaData.Name, cluster.MetaData.KubeVipLoadbalancer, cluster.MetaData.InterfaceName, controlPlaneReplicas)
 	fmt.Printf("Dry Run Completed\n")
-
-	podSubnet := cluster.MetaData.PodSubnet
-	serviceSubnet := cluster.MetaData.ServiceSubnet
-
-	//set defaults if not specified in cluster.yaml
-	if podSubnet == "" {
-		podSubnet = "192.168.0.0/16"
-	}
-	if serviceSubnet == "" {
-		serviceSubnet = "10.96.0.0/12"
-	}
 
 	//Read in the Dry Run output and generate individual object file from it
 	dryRunOutput, err := os.Open(cluster.MetaData.Name + ".yaml")
@@ -175,7 +174,7 @@ func up(modifier string) {
 	}
 	dryRunDecoder := yaml.NewDecoder(dryRunOutput)
 
-	// for each object in dry run, read it and convert to single file
+	// for each object in dry run, read it and convert to a yaml file
 	for {
 		spec := new(k8sObject)
 		err := dryRunDecoder.Decode(&spec)
@@ -193,82 +192,7 @@ func up(modifier string) {
 		fileName := "resources/" + resourceName + "-" + resourceKind + ".yaml"
 		var file []byte
 
-		if resourceName == cluster.MetaData.Name && resourceKind == "Cluster" {
-			test := k8sCluster{
-				APIVersion: "cluster.x-k8s.io/v1alpha4",
-				Kind:       resourceKind,
-				MetaData: k8sClusterMetadata{
-					Labels: map[string]string{
-						"konvoy.d2iq.io/cluster-name": cluster.MetaData.Name,
-						"konvoy.d2iq.io/cni":          "calico",
-						"konvoy.d2iq.io/csi":          "local-volume-provisioner",
-						"konvoy.d2iq.io/osHint":       "",
-						"konvoy.d2iq.io/provider":     "preprovisioned",
-					},
-					Name:      resourceName,
-					Namespace: "default",
-				},
-				Spec: k8sClusterSpec{
-					ClusterNetwork: k8sClusterClusterNetwork{
-						Pods: k8sPods{
-							CidrBlocks: []string{podSubnet},
-						},
-						Services: k8sServices{
-							CidrBlocks: []string{serviceSubnet},
-						},
-					},
-					ControlPlaneEndpoint: k8sControlPlaneEndpoint{
-						Host: "",
-						Port: 0,
-					},
-					ControlPlaneRef: k8sControlPlaneRef{
-						APIVersion: "controlplane.cluster.x-k8s.io/v1alpha4",
-						Kind:       "KubeadmControlPlane",
-						Name:       cluster.MetaData.Name + "-control-plane",
-						Namespace:  "default",
-					},
-					InfrastructureRef: k8sInfrastructureRef{
-						APIVersion: "infrastructure.cluster.konvoy.d2iq.io/v1alpha1",
-						Kind:       "PreprovisionedCluster",
-						Name:       cluster.MetaData.Name,
-						Namespace:  "default",
-					},
-				},
-			}
-			file, err = yaml.Marshal(&test)
-
-		} else if resourceName == "calico-cni-"+cluster.MetaData.Name && resourceKind == "ConfigMap" {
-
-			customResources := "apiVersion: operator.tigera.io/v1\n" +
-				"kind: Installation\n" +
-				"metadata:\n" +
-				"  name: default\n" +
-				"spec:\n" +
-				"  # Configures Calico networking.\n" +
-				"  calicoNetwork:\n" +
-				"    # Note: The ipPools section cannot be modified post-install.\n" +
-				"    ipPools:\n" +
-				"    - blockSize: 26\n" +
-				"      cidr: " + podSubnet + "\n" +
-				"      encapsulation: IPIP\n" +
-				"      natOutgoing: Enabled\n" +
-				"      nodeSelector: all()\n" +
-				"    bgp: Enabled\n"
-
-			test := k8sObject{}
-			test.APIVersion = "v1"
-			test.Kind = "ConfigMap"
-			test.Metadata = map[string]interface{}{"name": "calico-cni-" + cluster.MetaData.Name, "namespace": "default"}
-			test.Data = map[string]interface{}{"custom-resources.yaml": customResources}
-
-			file, err = yaml.Marshal(&test)
-
-		} else if !(strings.Contains(resourceName, "md-0") ||
-			(resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "PreprovisionedMachineTemplate") ||
-			(resourceName == cluster.MetaData.Name+"-control-plane" && resourceKind == "KubeadmControlPlane")) {
-			file, err = yaml.Marshal(&spec)
-
-		}
+		file, err = yaml.Marshal(&spec)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -276,10 +200,12 @@ func up(modifier string) {
 		if err != nil {
 			log.Fatal(err)
 		}
+
 	}
 
+	generateCapiCluster(cluster)
+	generateCalicoConfigMap(cluster)
 	generateKubeadmControlPlane(cluster)
-
 	//If anything sets a flag to true, generate an override for it
 	flagEnabled := generateControlPlanePreprovisionedMachineTemplate(cluster)
 	flagEnabled = generatePreprovisionedMachineTemplate(cluster, flagEnabled)
@@ -290,7 +216,7 @@ func up(modifier string) {
 	genOverride(cluster.MetaData.Name, cluster.Registry, flagEnabled)
 	fmt.Printf("Generated All Overrides\n")
 
-	//before we apply resources check for the pause flag
+	//before we apply resources check for the pause flag, ie ./pkd up yee-haw
 	if modifier == "pause" {
 		r := bufio.NewReader(os.Stdin)
 		fmt.Println("Pausing, you can now manually edit objects in /resources before cluster creation")
@@ -349,7 +275,10 @@ func up(modifier string) {
 	fmt.Printf("Merged the Kubeconfig\n")
 
 	generateMlbConfigMap(cluster)
-	fmt.Printf("Applied Metal-LB ConfigMap\n")
+	fmt.Printf("Applied Metal-LB ConfigMap\n\n")
+	fmt.Printf("The DKP cluster has now been deployed. You can proceed to deploying Kommander via:\n\n" +
+		"./dkp install kommander --init > kommander.yaml\n" +
+		"./dkp install kommander --installer-config kommander.yaml\n")
 
 }
 
@@ -546,14 +475,14 @@ func genPPI(mdata MetaData, npool NodePool, nodesetName string) {
 	}
 }
 
-func loadCluster() Cluster {
+func loadCluster() pkdCluster {
 	clusterYaml, err := ioutil.ReadFile("cluster.yaml")
 
 	if err != nil {
 
 		log.Fatal(err)
 	}
-	data := Cluster{
+	data := pkdCluster{
 		MetaData:     MetaData{},
 		Registry:     Registry{},
 		Controlplane: NodePool{},
@@ -571,51 +500,68 @@ func loadCluster() Cluster {
 }
 
 func initYaml() {
-	initcluster := Cluster{
-		MetaData: MetaData{
-			Name:             "cluster-name",
-			SshUser:          "user",
-			SshPrivateKey:    "id_rsa",
-			InterfaceName:    "ens192",
-			Loadbalancer:     "10.0.0.10",
-			PodSubnet:        "192.168.0.0/16",
-			ServiceSubnet:    "10.96.0.0/12",
-			MetalLBAddresses: "10.0.0.20-10.0.0.24",
-		},
-		Registry: Registry{
-			Host:          "registry-1.docker.io",
-			Username:      "",
-			Password:      "",
-			Auth:          "",
-			IdentityToken: "",
-		},
-		Controlplane: NodePool{
-			Hosts: map[string]string{"controlplane1": "10.0.0.11", "controlplane2": "10.0.0.12", "controlplane3": "10.0.0.13"},
-			Flags: map[string]bool{"registry": true},
-		},
-		NodePools: map[string]NodePool{
-			"md-0": {
-				Hosts: map[string]string{"worker1": "10.0.0.14", "worker2": "10.0.0.15", "worker3": "10.0.0.16", "worker4": "10.0.0.17"},
-				Flags: map[string]bool{"registry": true},
+
+	exampleCluster := pkdCluster{
+		MetaData:     MetaData{},
+		Registry:     Registry{},
+		Controlplane: NodePool{},
+		NodePools:    map[string]NodePool{},
+	}
+
+	exampleCluster.MetaData.Name = "Demo Cluster"
+	exampleCluster.MetaData.SshUser = "user"
+	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
+	exampleCluster.MetaData.InterfaceName = "ens192"
+	exampleCluster.MetaData.KubeVipLoadbalancer = "10.0.0.10"
+	exampleCluster.MetaData.KIBTimeout = "40"
+	exampleCluster.MetaData.PivotTimeout = "20"
+	exampleCluster.MetaData.PodSubnet = "192.168.0.0/16"
+	exampleCluster.MetaData.ServiceSubnet = "10.96.0.0/12"
+	exampleCluster.MetaData.MetalAddressRange = "10.0.0.20-10.0.0.24"
+	exampleCluster.Registry.Host = "registry-1.docker.io"
+	exampleCluster.Registry.Username = "user"
+	exampleCluster.Registry.Password = "pass"
+	exampleCluster.Registry.Auth = ""
+	exampleCluster.Registry.IdentityToken = ""
+	exampleCluster.Controlplane.Hosts = map[string]string{
+		"controlplane1": "10.0.0.11",
+		"controlplane2": "10.0.0.12",
+		"controlplane3": "10.0.0.13",
+	}
+	exampleCluster.Controlplane.Flags = map[string]bool{
+		"registry": true,
+	}
+	exampleCluster.NodePools = map[string]NodePool{
+		"md-0": {
+			Hosts: map[string]string{
+				"worker1": "10.0.0.14",
+				"worker2": "10.0.0.15",
+				"worker3": "10.0.0.16",
+				"worker4": "10.0.0.17",
+				"worker5": "10.0.0.18",
 			},
-			"md-1": {
-				Hosts: map[string]string{"worker1": "10.0.0.18", "worker2": "10.0.0.19"},
-				Flags: map[string]bool{"registry": true, "gpu": true},
+			Flags: map[string]bool{
+				"registry": true,
+			},
+		},
+		"md-1": {
+			Hosts: map[string]string{
+				"worker1": "10.0.0.19",
+				"worker2": "10.0.0.20",
+			},
+			Flags: map[string]bool{
+				"registry": true,
 			},
 		},
 	}
 
-	data, err := yaml.Marshal(&initcluster)
-
+	file, err := yaml.Marshal(&exampleCluster)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	err2 := ioutil.WriteFile("cluster.yaml", data, 0644)
-
-	if err2 != nil {
-
-		log.Fatal(err2)
+	err = ioutil.WriteFile("cluster.yaml", file, 0644)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
