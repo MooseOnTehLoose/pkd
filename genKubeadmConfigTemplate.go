@@ -24,6 +24,7 @@ func generateKubeadmConfigTemplate(cluster pkdCluster) {
 			"  address = \"0.0.0.0:1338\"\n" +
 			"  grpc_histogram = false"
 
+		kctStr3 := "#!/bin/bash\nsystemctl restart containerd\n\nSECONDS=0\nuntil crictl info\ndo\n  if (( SECONDS > 60 ))\n  then\n     echo \"Containerd is not running. Giving up...\"\n     exit 1\n  fi\n  echo \"Containerd is not running yet. Waiting...\"\n  sleep 5\ndone"
 		kct := KubeadmConfigTemplate{}
 		kct.APIVersion = "bootstrap.cluster.x-k8s.io/v1beta1"
 		kct.Kind = "KubeadmConfigTemplate"
@@ -46,6 +47,15 @@ func generateKubeadmConfigTemplate(cluster pkdCluster) {
 			Content:     kctStr2,
 			Path:        "/etc/containerd/conf.d/konvoy-metrics.toml",
 			Permissions: "0644",
+		})
+		kct.Spec.Template.Spec.Files = append(kct.Spec.Template.Spec.Files, struct {
+			Content     string "yaml:\"content\""
+			Path        string "yaml:\"path\""
+			Permissions string "yaml:\"permissions\""
+		}{
+			Content:     kctStr3,
+			Path:        "/run/konvoy/restart-containerd-and-wait.sh",
+			Permissions: "0700",
 		})
 		kct.Spec.Template.Spec.Format = "cloud-config"
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"

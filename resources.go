@@ -2,6 +2,7 @@ package main
 
 type pkdCluster struct {
 	MetaData     MetaData
+	AirGap       AirGap
 	Registry     Registry
 	Controlplane NodePool
 	NodePools    map[string]NodePool
@@ -10,7 +11,12 @@ type NodePool struct {
 	Hosts map[string]string
 	Flags map[string]bool
 }
+type AirGap struct {
+	OsVersion  string `yaml:"osversion,omitempty"`
+	K8sVersion string `yaml:"k8sversion,omitempty"`
+}
 type MetaData struct {
+	DKPversion          string `yaml:"dkpversion"`
 	Name                string `yaml:"name"`
 	SshUser             string `yaml:"sshuser"`
 	SshPrivateKey       string `yaml:"sshprivatekey"`

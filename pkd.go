@@ -1,16 +1,21 @@
 package main
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -32,8 +37,8 @@ func main() {
 			fmt.Println("Generating cluster.yaml")
 			initYaml()
 		case arg1 == "airgap":
-			fmt.Printf("Downloading and Seeding all Air Gap Resources")
-
+			fmt.Println("Downloading all Air Gap Resources")
+			createAirGapBundle(loadCluster())
 		//up
 		case arg1 == "up":
 			if argNum >= 3 && os.Args[2] == "yee-haw" {
@@ -87,15 +92,10 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
-			cmd = exec.Command("./kommander", "version")
-
-			//run the command
-			output, err = cmd.CombinedOutput()
-			fmt.Println(string(output))
-			if err != nil {
-				log.Fatal(err)
-			}
+		case arg1 == "get-bundle":
+			cluster := loadCluster()
+			fmt.Printf("Cluster YAML loaded into PKD\n")
+			createAirGapBundle(cluster)
 
 		//no args or bad args
 		default:
@@ -104,7 +104,9 @@ func main() {
 				" pkd init					create cluster.yaml and kommander.yaml templates\n" +
 				" pkd up [yee-haw]			create all yaml resources needed to deploy a cluster, optional cowboy mode\n" +
 				" pkd bootstrap [up/down]	control the bootstrap cluster\n" +
-				" pkd version				grab the PKD, DKP and Kommander cli versions\n")
+				" pkd version				grab the PKD, DKP and Kommander cli versions\n" +
+				" pkd get-bundle			download an airgap bundle\n" +
+				" pkd unzip-bundle			unpack an airgap bundle into the current directory\n\n")
 		}
 
 	}
@@ -828,4 +830,198 @@ func pivotCluster(clusterName string, pivotTimeout string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func createAirGapBundle(cluster pkdCluster) {
+
+	osversion := cluster.AirGap.OsVersion
+	k8sversion := cluster.AirGap.K8sVersion
+	dkpversion := cluster.MetaData.DKPversion
+	err := os.MkdirAll("download/kib/artifacts/images", 0755)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = copy("pkd", "download/pkd")
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = copy("cluster.yaml", "download/cluster.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	//download all resources for specific versions
+
+	//unznip DKP
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp_"+dkpversion+"_linux_amd64.tar.gz", "download/dkp_"+dkpversion+"_linux_amd64.tar.gz")
+	decompress("download/dkp_"+dkpversion+"_linux_amd64.tar.gz", "download")
+
+	//unzip KIB  into kib dir
+	downloadFile("https://github.com/mesosphere/konvoy-image-builder/releases/download/v1.12.0/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz", "download/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz")
+	decompress("download/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz", "download/kib")
+
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy-bootstrap_"+dkpversion+".tar", "download/konvoy-bootstrap_"+dkpversion+".tar")
+	downloadFile("https://downloads.d2iq.com/dkp/airgapped/os-packages/"+k8sversion+"_"+osversion+".tar.gz", "download/kib/artifacts/"+k8sversion+"_"+osversion+".tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"+k8sversion+"_images.tar.gz", "download/kib/artifacts/images/"+k8sversion+"_images.tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/airgapped/pip-packages/pip-packages.tar.gz", "download/kib/artifacts/pip-packages.tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy_image_bundle_"+dkpversion+"_linux_amd64.tar.gz", "download/konvoy-image-bundle.tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-image-bundle-"+dkpversion+".tar.gz", "download/kommander-image-bundle.tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz", "download/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp"+dkpversion+"/kommander-applications-"+dkpversion+".tar.gz", "download/kommander-applications-"+dkpversion+".tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-insights-image-bundle-"+dkpversion+".tar.gz", "download/dkp-insights-image-bundle-"+dkpversion+".tar.gz")
+
+	//remove KIB tar fil
+	//compress all resources into archive
+	compress("./download", dkpversion)
+	//delete remaining files
+}
+
+func downloadFile(url string, path string) {
+
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Downloaded: " + url + "\n To: " + path)
+}
+
+//used to create the final AirGap Bundle
+func compress(downloadpath string, version string) {
+	var dirBuffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&dirBuffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+
+	// walk through every file in the folder
+	if err := filepath.Walk(downloadpath, func(path string, info fs.FileInfo, funcErr error) error {
+
+		header, err := tar.FileInfoHeader(info, path)
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(path)
+		// write header
+		if err := tarWriter.WriteHeader(header); err != nil {
+			return err
+		}
+		// if not a dir, write file content
+		if !info.IsDir() {
+			data, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(tarWriter, data); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		fmt.Println(err)
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		fmt.Println(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		fmt.Println(err)
+	}
+
+	// write the .tar.gzip
+	fileToWrite, err := os.OpenFile("./AirGapBundle-dkp"+version+".tar.gz", os.O_CREATE|os.O_RDWR, os.FileMode(0755))
+	if err != nil {
+		panic(err)
+	}
+	if _, err := io.Copy(fileToWrite, &dirBuffer); err != nil {
+		panic(err)
+	}
+
+}
+
+func decompress(src string, dest string) error {
+	f, err := os.Open(src)
+	if err != nil {
+		os.Exit(1)
+	}
+	gzf, err := gzip.NewReader(f)
+	if err != nil {
+		fmt.Println(err)
+	}
+	tarReader := tar.NewReader(gzf)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if header.Typeflag == tar.TypeReg {
+			targetFile := filepath.Join(dest, header.Name)
+			cut := -1
+			if runtime.GOOS == "windows" {
+				cut = strings.LastIndex(targetFile, "\\")
+			} else {
+				cut = strings.LastIndex(targetFile, "/")
+			}
+			if cut == -1 {
+				fmt.Println("Error: no path separator in filepath for: " + targetFile)
+			} else {
+				err = os.MkdirAll(targetFile[0:cut], 0755)
+				if err != nil {
+					fmt.Println(err)
+				}
+				if _, err := os.Stat("targetFile"); os.IsNotExist(err) {
+					file, err := os.OpenFile(targetFile, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+					if err != nil {
+						return err
+					}
+					if _, err := io.Copy(file, tarReader); err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+	}
+
+	f.Close()
+	return err
+}
+
+func copy(src, dst string) error {
+	sourceFileStat, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if !sourceFileStat.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", src)
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+	_, err = io.Copy(destination, source)
+	if err != nil {
+		fmt.Printf("Failed to copy file: %s\n", err.Error())
+	}
+	return err
 }
