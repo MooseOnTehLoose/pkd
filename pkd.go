@@ -123,12 +123,22 @@ func up(modifier string) {
 
 	//people tend to forget to delete their bootstrap clusters
 	//we should probably ask before deleting in a future release
+	cluster := loadCluster()
+	fmt.Printf("Cluster YAML loaded into PKD\n")
+
+	//create inventory.yaml
+	if cluster.AirGap.Enabled {
+		generateInventory(cluster)
+		copy(cluster.MetaData.SshPrivateKey, "kib/"+cluster.MetaData.SshPrivateKey)
+		seedRegistry(cluster.Registry.Host, cluster.Registry.Password, cluster.Registry.Password)
+		seedHosts(cluster.MetaData.DKPversion, cluster.AirGap.OsVersion)
+		loadBootstrapImage(cluster.MetaData.DKPversion)
+	}
+
 	bootstrap("down")
 	bootstrap("up")
 
 	//This loads the user customizable values to generate a cluster from cluster.yaml
-	cluster := loadCluster()
-	fmt.Printf("Cluster YAML loaded into PKD\n")
 
 	//set defaults if not specified in cluster.yaml
 	if cluster.MetaData.PodSubnet == "" {
@@ -208,15 +218,12 @@ func up(modifier string) {
 	generateCapiCluster(cluster)
 	generateCalicoConfigMap(cluster)
 	generateKubeadmControlPlane(cluster)
-	//If anything sets a flag to true, generate an override for it
-	flagEnabled := generateControlPlanePreprovisionedMachineTemplate(cluster)
-	flagEnabled = generatePreprovisionedMachineTemplate(cluster, flagEnabled)
+	generateControlPlanePreprovisionedMachineTemplate(cluster)
+	generatePreprovisionedMachineTemplate(cluster)
 	generateKubeadmConfigTemplate(cluster)
 	generateMachineDeployment(cluster)
-	fmt.Printf("Generated all Custom Resources for NodePools\n")
 
-	genOverride(cluster.MetaData.Name, cluster.Registry, flagEnabled)
-	fmt.Printf("Generated All Overrides\n")
+	fmt.Printf("Generated all Custom Resources for NodePools\n")
 
 	//before we apply resources check for the pause flag, ie ./pkd up yee-haw
 	if modifier == "pause" {
@@ -278,104 +285,17 @@ func up(modifier string) {
 
 	generateMlbConfigMap(cluster)
 	fmt.Printf("Applied Metal-LB ConfigMap\n\n")
-	fmt.Printf("The DKP cluster has now been deployed. You can proceed to deploying Kommander via:\n\n" +
-		"./dkp install kommander --init > kommander.yaml\n" +
-		"./dkp install kommander --installer-config kommander.yaml\n")
 
-}
-
-func genOverride(clusterName string, registryInfo Registry, flags map[string]bool) {
-
-	if flags["registry"] {
-		registryOverride := RegistryOverride{}
-		registryOverride.ImageRegistriesWithAuth = append(registryOverride.ImageRegistriesWithAuth, registryInfo)
-
-		data, err := yaml.Marshal(&registryOverride)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("overrides/registryOverride.yaml", data, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		//#Create Override secret for Bootstrap Cluster
-		//kubectl create secret generic $CLUSTER_NAME-overrides --from-file=overrides.yaml=overrides.yaml
-		//kubectl label secret $CLUSTER_NAME-overrides clusterctl.cluster.x-k8s.io/move=
-
-		cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-registry-override", "--from-file=overrides.yaml=overrides/registryOverride.yaml")
-		//run the command
-		output, err := cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-		cmd = exec.Command("kubectl", "label", "secret", clusterName+"-registry-override", "clusterctl.cluster.x-k8s.io/move=")
-		//run the command
-		output, err = cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if flags["gpu"] {
-		gpuOverride := GpuOverride{}
-		gpuOverride.Gpu.Types = append(gpuOverride.Gpu.Types, "nvidia")
-		gpuOverride.BuildNameExtra = "-nvidia"
-		data, err := yaml.Marshal(&gpuOverride)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("overrides/gpuOverride.yaml", data, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-		cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-gpu-override", "--from-file=overrides.yaml=overrides/gpuOverride.yaml")
-		//run the command
-		output, err := cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-		cmd = exec.Command("kubectl", "label", "secret", clusterName+"-gpu-override", "clusterctl.cluster.x-k8s.io/move=")
-		//run the command
-		output, err = cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if flags["registryGPU"] {
-		//gpu and registry
-		gpuRegOverride := GpuRegOverride{}
-		gpuRegOverride.Gpu.Types = append(gpuRegOverride.Gpu.Types, "nvidia")
-		gpuRegOverride.BuildNameExtra = "-nvidia"
-		gpuRegOverride.ImageRegistriesWithAuth = append(gpuRegOverride.ImageRegistriesWithAuth, registryInfo)
-
-		data, err := yaml.Marshal(&gpuRegOverride)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = ioutil.WriteFile("overrides/gpuRegOverride.yaml", data, 0644)
-		if err != nil {
-			log.Fatal(err)
-		}
-		cmd := exec.Command("kubectl", "create", "secret", "generic", clusterName+"-gpu-registry-override", "--from-file=overrides.yaml=overrides/gpuRegOverride.yaml")
-		//run the command
-		output, err := cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-		cmd = exec.Command("kubectl", "label", "secret", clusterName+"-gpu-registry-override", "clusterctl.cluster.x-k8s.io/move=")
-		//run the command
-		output, err = cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
+	if cluster.AirGap.Enabled {
+		fmt.Println("The DKP cluster has now been deployed. You can proceed to deploying Kommander via:\n\n" +
+			"./dkp install kommander --init --airgapped > install.yaml\n" +
+			"./dkp install kommander --installer-config ./install.yaml" +
+			"--kommander-applications-repository kommander-applications-" + cluster.MetaData.DKPversion + ".tar.gz" +
+			"--charts-bundle dkp-kommander-charts-bundle-" + cluster.MetaData.DKPversion + ".tar.gz")
+	} else {
+		fmt.Println("The DKP cluster has now been deployed. You can proceed to deploying Kommander via:\n\n" +
+			"./dkp install kommander --init > kommander.yaml\n" +
+			"./dkp install kommander --installer-config kommander.yaml")
 	}
 }
 
@@ -520,6 +440,7 @@ func initYaml() {
 	exampleCluster.MetaData.PodSubnet = "192.168.0.0/16"
 	exampleCluster.MetaData.ServiceSubnet = "10.96.0.0/12"
 	exampleCluster.MetaData.MetalAddressRange = "10.0.0.20-10.0.0.24"
+	exampleCluster.AirGap.Enabled = false
 	exampleCluster.Registry.Host = "registry-1.docker.io"
 	exampleCluster.Registry.Username = "user"
 	exampleCluster.Registry.Password = "pass"
@@ -868,7 +789,7 @@ func createAirGapBundle(cluster pkdCluster) {
 	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-image-bundle-"+dkpversion+".tar.gz", "download/kommander-image-bundle.tar.gz")
 	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz", "download/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz")
 	downloadFile("https://downloads.d2iq.com/dkp"+dkpversion+"/kommander-applications-"+dkpversion+".tar.gz", "download/kommander-applications-"+dkpversion+".tar.gz")
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-insights-image-bundle-"+dkpversion+".tar.gz", "download/dkp-insights-image-bundle-"+dkpversion+".tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-insights-image-bundle-"+dkpversion+".tar.gz", "download/dkp-insights-image-bundle.tar.gz")
 
 	//remove KIB tar fil
 	//compress all resources into archive
@@ -1024,4 +945,53 @@ func copy(src, dst string) error {
 		fmt.Printf("Failed to copy file: %s\n", err.Error())
 	}
 	return err
+}
+
+func seedRegistry(host string, user string, password string) {
+
+	// ./dkp push image-bundle --image-bundle konvoy-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
+	cmd := exec.Command("./dkp", "push", "image-bundle", "konvoy-image-bundle.tar.gz", "--to-registry", host, "--to-registry-username", user, "--to-registry-password", password)
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// ./dkp push image-bundle --image-bundle kommander-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
+	cmd = exec.Command("./dkp", "push", "image-bundle", "kommander-image-bundle.tar.gz", "--to-registry", host, "--to-registry-username", user, "--to-registry-password", password)
+	output, err = cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// ./dkp push image-bundle --image-bundle dkp-insights-image-bundle-v2.2.0.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
+	cmd = exec.Command("./dkp", "push", "image-bundle", "dkp-insights-image-bundle.tar.gz", "--to-registry", host, "--to-registry-username", user, "--to-registry-password", password)
+	output, err = cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+}
+func seedHosts(dkpVersion string, bundleOs string) {
+
+	// ./konvoy-image upload artifacts --container-images-dir=./artifacts/images/ --os-packages-bundle=./artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz --pip-packages-bundle=./artifacts/pip-packages.tar.gz
+	cmd := exec.Command("./kib/konvoy-image", "upload", "artifacts", "--container-images-dir=./kib/artifacts/images/",
+		"--os-packages-bundle=./kib/artifacts/"+dkpVersion+"_"+bundleOs+".tar.gz", "--pip-packages-bundle=./kib/artifacts/pip-packages.tar.gz")
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+func loadBootstrapImage(version string) {
+	// docker load -i konvoy-bootstrap_v2.2.0.tar
+	cmd := exec.Command("docker", "load", "-i", "konvoy-bootstrap_v"+version+".tar")
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }

@@ -12,6 +12,7 @@ type NodePool struct {
 	Flags map[string]bool
 }
 type AirGap struct {
+	Enabled    bool   `yaml:"enabled"`
 	OsVersion  string `yaml:"osversion,omitempty"`
 	K8sVersion string `yaml:"k8sversion,omitempty"`
 }
@@ -29,11 +30,26 @@ type MetaData struct {
 	MetalAddressRange   string `yaml:"metaladdressrange"`
 }
 type Registry struct {
-	Host          string `yaml:"host"`
-	Username      string `yaml:"username"`
-	Password      string `yaml:"password"`
-	Auth          string `yaml:"auth"`
-	IdentityToken string `yaml:"identityToken"`
+	Host          string `yaml:"host,omitempty"`
+	Username      string `yaml:"username,omitempty"`
+	Password      string `yaml:"password,omitempty"`
+	Auth          string `yaml:"auth,omitempty"`
+	IdentityToken string `yaml:"identityToken,omitempty"`
+}
+
+type Inventory struct {
+	All struct {
+		Vars struct {
+			AnsibleUser              string `yaml:"ansible_user"`
+			AnsiblePort              int    `yaml:"ansible_port"`
+			AnsibleSSHPrivateKeyFile string `yaml:"ansible_ssh_private_key_file"`
+		} `yaml:"vars"`
+		Hosts map[string]*AnsibleHost `yaml:"hosts"`
+	} `yaml:"all"`
+}
+
+type AnsibleHost struct {
+	AnsibleHost string `yaml:"ansible_host"`
 }
 
 type KubeadmControlPlane struct {
@@ -313,25 +329,19 @@ type k8sObject struct {
 	Data       map[string]interface{} `yaml:"data,omitempty"`
 }
 
-type RegistryOverride struct {
-	ImageRegistriesWithAuth []Registry `yaml:"image_registries_with_auth"`
-}
-type GpuOverride struct {
+type kibOverride struct {
 	Gpu struct {
-		Types []string `yaml:"types"`
-	} `yaml:"gpu"`
-	BuildNameExtra string `yaml:"build_name_extra"`
-}
-type GpuRegOverride struct {
-	Gpu struct {
-		Types []string `yaml:"types"`
-	} `yaml:"gpu"`
-	BuildNameExtra          string `yaml:"build_name_extra"`
+		Types []string `yaml:"types,omitempty"`
+	} `yaml:"gpu,omitempty"`
+	BuildNameExtra          string `yaml:"build_name_extra,omitempty"`
 	ImageRegistriesWithAuth []struct {
-		Host          string `yaml:"host"`
-		Username      string `yaml:"username"`
-		Password      string `yaml:"password"`
-		Auth          string `yaml:"auth"`
-		IdentityToken string `yaml:"identityToken"`
-	} `yaml:"image_registries_with_auth"`
+		Host          string `yaml:"host,omitempty"`
+		Username      string `yaml:"username,omitempty"`
+		Password      string `yaml:"password,omitempty"`
+		Auth          string `yaml:"auth,omitempty"`
+		IdentityToken string `yaml:"identityToken,omitempty"`
+	} `yaml:"image_registries_with_auth,omitempty"`
+	OsPackagesLocalBundleFile  string `yaml:"os_packages_local_bundle_file,omitempty"`
+	PipPackagesLocalBundleFile string `yaml:"pip_packages_local_bundle_file,omitempty"`
+	ImagesLocalBundleDir       string `yaml:"images_local_bundle_dir,omitempty"`
 }

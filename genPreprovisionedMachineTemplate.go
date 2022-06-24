@@ -7,8 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generatePreprovisionedMachineTemplate(cluster pkdCluster, overrideMap map[string]bool) map[string]bool {
-	flagEnabled := overrideMap
+func generatePreprovisionedMachineTemplate(cluster pkdCluster) {
 	for nodesetName, nodes := range cluster.NodePools {
 		pmt := PreprovisionedMachineTemplate{}
 		pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
@@ -17,20 +16,9 @@ func generatePreprovisionedMachineTemplate(cluster pkdCluster, overrideMap map[s
 		pmt.Metadata.Namespace = "default"
 		pmt.Spec.Template.Spec.InventoryRef.Name = cluster.MetaData.Name + "-" + nodesetName
 		pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
-		switch {
-		case nodes.Flags["registry"] && nodes.Flags["gpu"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-registry-override"
-			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			flagEnabled["registryGPU"] = true
-		case nodes.Flags["registry"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-registry-override"
-			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			flagEnabled["registry"] = true
-		case nodes.Flags["gpu"]:
-			pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-gpu-override"
-			//pmt.Spec.Template.Spec.OverrideRef.Namespace = "default"
-			flagEnabled["gpu"] = true
-		}
+		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-override"
+
+		genOverride(pmt.Spec.Template.Spec.OverrideRef.Name, nodes, cluster.Registry, cluster.AirGap.Enabled)
 
 		data, err := yaml.Marshal(&pmt)
 		if err != nil {
@@ -42,5 +30,4 @@ func generatePreprovisionedMachineTemplate(cluster pkdCluster, overrideMap map[s
 		}
 
 	}
-	return flagEnabled
 }
