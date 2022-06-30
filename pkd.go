@@ -773,10 +773,30 @@ func createAirGapBundle(cluster pkdCluster) error {
 		log.Fatal(err)
 	}
 
-	err = copy("pkd", "download/pkd")
-	if err != nil {
-		log.Fatal(err)
+	var pkdFile = ""
+
+	switch runtime.GOOS {
+	case "darwin":
+		pkdFile = "pkd-darwin-amd64"
+		fmt.Println("Not copying PKD binary " + pkdFile + " as it will not be compatible with destination OS")
+	case "windows":
+		pkdFile = "pkd.exe"
+		fmt.Println("Not copying PKD binary " + pkdFile + " as it will not be compatible with destination OS")
+	case "linux":
+		pkdFile = "pkd-linux-amd64"
+		if _, err := os.Stat(pkdFile); err == nil {
+			err = copy("pkd", "download/"+pkdFile)
+			if err != nil {
+				log.Fatal(err)
+			}
+		} else if _, err := os.Stat("pkd"); err == nil {
+			err = copy("pkd", "download/"+pkdFile)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
 	}
+
 	err = copy("cluster.yaml", "download/cluster.yaml")
 	if err != nil {
 		log.Fatal(err)
