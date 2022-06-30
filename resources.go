@@ -30,11 +30,9 @@ type MetaData struct {
 	MetalAddressRange   string `yaml:"metaladdressrange"`
 }
 type Registry struct {
-	Host          string `yaml:"host,omitempty"`
-	Username      string `yaml:"username,omitempty"`
-	Password      string `yaml:"password,omitempty"`
-	Auth          string `yaml:"auth,omitempty"`
-	IdentityToken string `yaml:"identityToken,omitempty"`
+	Host     string `yaml:"host,omitempty"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
 }
 
 type Inventory struct {
@@ -44,7 +42,7 @@ type Inventory struct {
 			AnsiblePort              int    `yaml:"ansible_port"`
 			AnsibleSSHPrivateKeyFile string `yaml:"ansible_ssh_private_key_file"`
 		} `yaml:"vars"`
-		Hosts map[string]*AnsibleHost `yaml:"hosts"`
+		Hosts map[string]AnsibleHost `yaml:"hosts"`
 	} `yaml:"all"`
 }
 
@@ -333,7 +331,11 @@ type kibOverride struct {
 	Gpu struct {
 		Types []string `yaml:"types,omitempty"`
 	} `yaml:"gpu,omitempty"`
-	BuildNameExtra          string `yaml:"build_name_extra,omitempty"`
+	BuildNameExtra              string `yaml:"build_name_extra,omitempty"`
+	DefaultImageRegistryMirrors struct {
+		DockerIo string `yaml:"docker.io,omitempty"`
+		Wildcard string `yaml:"*,omitempty"`
+	} `yaml:"default_image_registry_mirrors,omitempty"`
 	ImageRegistriesWithAuth []struct {
 		Host          string `yaml:"host,omitempty"`
 		Username      string `yaml:"username,omitempty"`

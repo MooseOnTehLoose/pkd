@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os/exec"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,22 +13,79 @@ import (
 func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool) {
 
 	override := kibOverride{}
+	// Full Path with http(s)://
+	registryURL := registryInfo.Host
 
-	//os_packages_local_bundle_file: "{{ playbook_dir }}/../artifacts/{{ kubernetes_version }}_{{ ansible_distribution|lower }}_{{ ansible_distribution_major_version }}_x86_64.tar.gz"
-	//pip_packages_local_bundle_file: "{{ playbook_dir }}/../artifacts/pip-packages.tar.gz"
-	//images_local_bundle_dir: "{{ playbook_dir}}/../artifacts/images"
+	// No Protocol, do this more elegantly later on
+	registryADDR := strings.ReplaceAll(registryURL, "https://", "")
+	registryADDR = strings.ReplaceAll(registryADDR, "http://", "")
 
-	if airgap {
-		override.OsPackagesLocalBundleFile = "{{ playbook_dir }}/../artifacts/{{ kubernetes_version }}_{{ ansible_distribution|lower }}_{{ ansible_distribution_major_version }}_x86_64.tar.gz"
-		override.PipPackagesLocalBundleFile = "{{ playbook_dir }}/../artifacts/pip-packages.tar.gz"
-		override.ImagesLocalBundleDir = "{{ playbook_dir}}/../artifacts/images"
+	//Example: https://harbor-registry.com/registry
+	//If no port specified, insert /v2/ after last period and before first /
+	//
+	//			https://harbor-registry.com/v2/registry
+	//
+	//If port specifed, do nothing
+	if !strings.Contains(registryADDR, ":") {
+
+		// https://harbor-registry.
+		periodIndex := strings.LastIndex(registryURL, ".")
+
+		// https://harbor-registry.
+		firstHalf := registryURL[:periodIndex]
+		// com/registry
+		secondHalf := registryURL[periodIndex:]
+
+		secondHalf = strings.Replace(secondHalf, "/", "/v2/", 1)
+
+		registryURL = firstHalf + secondHalf
+
+		//for the auth section we need to remove the sub path
+
+		registryADDR = registryADDR[:strings.LastIndex(registryADDR, "/")]
 
 	}
 
-	if nodes.Flags["registry"] {
-		override.ImageRegistriesWithAuth = append(override.ImageRegistriesWithAuth, registryInfo)
+	// If this is an Air Gap Registry override
+	if airgap && nodes.Flags["registry"] {
+
+		override.DefaultImageRegistryMirrors.DockerIo = registryURL
+		override.DefaultImageRegistryMirrors.Wildcard = registryURL
+		override.ImageRegistriesWithAuth = append(override.ImageRegistriesWithAuth,
+			struct {
+				Host          string "yaml:\"host,omitempty\""
+				Username      string "yaml:\"username,omitempty\""
+				Password      string "yaml:\"password,omitempty\""
+				Auth          string "yaml:\"auth,omitempty\""
+				IdentityToken string "yaml:\"identityToken,omitempty\""
+			}{
+				Host:          registryADDR,
+				Username:      registryInfo.Username,
+				Password:      registryInfo.Password,
+				Auth:          "",
+				IdentityToken: "",
+			})
 	}
-	if nodes.Flags["gpu"] {
+	// If this is a regular Registry Override
+	if !airgap && nodes.Flags["registry"] {
+
+		override.ImageRegistriesWithAuth = append(override.ImageRegistriesWithAuth,
+			struct {
+				Host          string "yaml:\"host,omitempty\""
+				Username      string "yaml:\"username,omitempty\""
+				Password      string "yaml:\"password,omitempty\""
+				Auth          string "yaml:\"auth,omitempty\""
+				IdentityToken string "yaml:\"identityToken,omitempty\""
+			}{
+				Host:          registryADDR,
+				Username:      registryInfo.Username,
+				Password:      registryInfo.Password,
+				Auth:          "",
+				IdentityToken: "",
+			})
+	}
+	// GPUs are not supported in Air Gap in 2.2.0
+	if nodes.Flags["gpu"] && !airgap {
 		override.Gpu.Types = append(override.Gpu.Types, "nvidia")
 		override.BuildNameExtra = "-nvidia"
 	}
@@ -40,7 +98,7 @@ func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool
 	if err != nil {
 		log.Fatal(err)
 	}
-	cmd := exec.Command("kubectl", "create", "secret", "generic", name, "--from-file=overrides.yaml=overrides/overrides/"+name+".yaml")
+	cmd := exec.Command("kubectl", "create", "secret", "generic", name, "--from-file=overrides.yaml=overrides/"+name+".yaml")
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {

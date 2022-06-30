@@ -17,10 +17,11 @@ func generateInventory(cluster pkdCluster) {
 				AnsiblePort              int    "yaml:\"ansible_port\""
 				AnsibleSSHPrivateKeyFile string "yaml:\"ansible_ssh_private_key_file\""
 			} "yaml:\"vars\""
-			Hosts map[string]*AnsibleHost "yaml:\"hosts\""
+			Hosts map[string]AnsibleHost "yaml:\"hosts\""
 		}{},
 	}
 
+	clusterInventory.All.Hosts = map[string]AnsibleHost{}
 	clusterInventory.All.Vars.AnsibleUser = cluster.MetaData.SshUser
 	clusterInventory.All.Vars.AnsiblePort = 22
 	clusterInventory.All.Vars.AnsibleSSHPrivateKeyFile = cluster.MetaData.SshPrivateKey
@@ -28,14 +29,14 @@ func generateInventory(cluster pkdCluster) {
 	for _, ip := range cluster.Controlplane.Hosts {
 		node := AnsibleHost{}
 		node.AnsibleHost = ip
-		clusterInventory.All.Hosts[ip] = &node
+		clusterInventory.All.Hosts[ip] = node
 
 	}
 	for _, npool := range cluster.NodePools {
 		for _, ip := range npool.Hosts {
 			node := AnsibleHost{}
 			node.AnsibleHost = ip
-			clusterInventory.All.Hosts[ip] = &node
+			clusterInventory.All.Hosts[ip] = node
 		}
 
 	}

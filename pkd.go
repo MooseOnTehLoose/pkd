@@ -38,7 +38,10 @@ func main() {
 			initYaml()
 		case arg1 == "airgap":
 			fmt.Println("Downloading all Air Gap Resources")
-			createAirGapBundle(loadCluster())
+			err := createAirGapBundle(loadCluster())
+			if err != nil {
+				log.Fatal(err)
+			}
 		//up
 		case arg1 == "up":
 			if argNum >= 3 && os.Args[2] == "yee-haw" {
@@ -129,9 +132,10 @@ func up(modifier string) {
 	//create inventory.yaml
 	if cluster.AirGap.Enabled {
 		generateInventory(cluster)
+		fmt.Println("Copying ssh key defined in cluster.yaml to kib directory")
 		copy(cluster.MetaData.SshPrivateKey, "kib/"+cluster.MetaData.SshPrivateKey)
-		seedRegistry(cluster.Registry.Host, cluster.Registry.Password, cluster.Registry.Password)
-		seedHosts(cluster.MetaData.DKPversion, cluster.AirGap.OsVersion)
+		seedRegistry(cluster.Registry.Host, cluster.Registry.Username, cluster.Registry.Password, cluster.MetaData.DKPversion)
+		seedHosts(cluster.AirGap.K8sVersion, cluster.AirGap.OsVersion)
 		loadBootstrapImage(cluster.MetaData.DKPversion)
 	}
 
@@ -289,9 +293,9 @@ func up(modifier string) {
 	if cluster.AirGap.Enabled {
 		fmt.Println("The DKP cluster has now been deployed. You can proceed to deploying Kommander via:\n\n" +
 			"./dkp install kommander --init --airgapped > install.yaml\n" +
-			"./dkp install kommander --installer-config ./install.yaml" +
-			"--kommander-applications-repository kommander-applications-" + cluster.MetaData.DKPversion + ".tar.gz" +
-			"--charts-bundle dkp-kommander-charts-bundle-" + cluster.MetaData.DKPversion + ".tar.gz")
+			"./dkp install kommander --installer-config install.yaml" +
+			" --kommander-applications-repository kommander-applications-" + cluster.MetaData.DKPversion + ".tar.gz" +
+			" --charts-bundle dkp-kommander-charts-bundle-" + cluster.MetaData.DKPversion + ".tar.gz")
 	} else {
 		fmt.Println("The DKP cluster has now been deployed. You can proceed to deploying Kommander via:\n\n" +
 			"./dkp install kommander --init > kommander.yaml\n" +
@@ -429,8 +433,8 @@ func initYaml() {
 		Controlplane: NodePool{},
 		NodePools:    map[string]NodePool{},
 	}
-
-	exampleCluster.MetaData.Name = "Demo Cluster"
+	exampleCluster.MetaData.DKPversion = "v2.2.0"
+	exampleCluster.MetaData.Name = "demo-cluster"
 	exampleCluster.MetaData.SshUser = "user"
 	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
 	exampleCluster.MetaData.InterfaceName = "ens192"
@@ -441,11 +445,11 @@ func initYaml() {
 	exampleCluster.MetaData.ServiceSubnet = "10.96.0.0/12"
 	exampleCluster.MetaData.MetalAddressRange = "10.0.0.20-10.0.0.24"
 	exampleCluster.AirGap.Enabled = false
-	exampleCluster.Registry.Host = "registry-1.docker.io"
+	exampleCluster.AirGap.K8sVersion = "1.22.8"
+	exampleCluster.AirGap.OsVersion = "centos_7_x86_64"
+	exampleCluster.Registry.Host = "https://registry-1.docker.io"
 	exampleCluster.Registry.Username = "user"
 	exampleCluster.Registry.Password = "pass"
-	exampleCluster.Registry.Auth = ""
-	exampleCluster.Registry.IdentityToken = ""
 	exampleCluster.Controlplane.Hosts = map[string]string{
 		"controlplane1": "10.0.0.11",
 		"controlplane2": "10.0.0.12",
@@ -753,11 +757,17 @@ func pivotCluster(clusterName string, pivotTimeout string) {
 	}
 }
 
-func createAirGapBundle(cluster pkdCluster) {
+func createAirGapBundle(cluster pkdCluster) error {
 
 	osversion := cluster.AirGap.OsVersion
 	k8sversion := cluster.AirGap.K8sVersion
 	dkpversion := cluster.MetaData.DKPversion
+
+	if osversion == "" || k8sversion == "" || dkpversion == "" {
+		err := errors.New("you must set osversion, k8sversion and dkpversion in cluster.yaml")
+		return err
+	}
+
 	err := os.MkdirAll("download/kib/artifacts/images", 0755)
 	if err != nil {
 		log.Fatal(err)
@@ -780,21 +790,46 @@ func createAirGapBundle(cluster pkdCluster) {
 	//unzip KIB  into kib dir
 	downloadFile("https://github.com/mesosphere/konvoy-image-builder/releases/download/v1.12.0/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz", "download/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz")
 	decompress("download/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz", "download/kib")
-
+	//remove KIB tar fil
+	err = os.Remove("download/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz")
+	if err != nil {
+		log.Fatal(err)
+	}
 	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy-bootstrap_"+dkpversion+".tar", "download/konvoy-bootstrap_"+dkpversion+".tar")
+
+	//curl --output artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz --location https://downloads.d2iq.com/dkp/airgapped/os-packages/"$VERSION"_"$BUNDLE_OS".tar.gz
 	downloadFile("https://downloads.d2iq.com/dkp/airgapped/os-packages/"+k8sversion+"_"+osversion+".tar.gz", "download/kib/artifacts/"+k8sversion+"_"+osversion+".tar.gz")
+
+	//curl --output artifacts/images/"$VERSION"_images.tar.gz --location https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"$VERSION"_images.tar.gz
 	downloadFile("https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"+k8sversion+"_images.tar.gz", "download/kib/artifacts/images/"+k8sversion+"_images.tar.gz")
+
 	downloadFile("https://downloads.d2iq.com/dkp/airgapped/pip-packages/pip-packages.tar.gz", "download/kib/artifacts/pip-packages.tar.gz")
 	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy_image_bundle_"+dkpversion+"_linux_amd64.tar.gz", "download/konvoy-image-bundle.tar.gz")
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-image-bundle-"+dkpversion+".tar.gz", "download/kommander-image-bundle.tar.gz")
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz", "download/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz")
-	downloadFile("https://downloads.d2iq.com/dkp"+dkpversion+"/kommander-applications-"+dkpversion+".tar.gz", "download/kommander-applications-"+dkpversion+".tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-image-bundle-"+dkpversion+".tar.gz", "download/archived-kommander-image-bundle.tar")
+	decompress("download/archived-kommander-image-bundle.tar", "download")
+	err = os.Remove("download/archived-kommander-image-bundle.tar")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// wget "https://downloads.d2iq.com/dkp/v2.2.1/kommander-applications-v2.2.1.tar.gz"
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-applications-"+dkpversion+".tar.gz", "download/kommander-applications-"+dkpversion+".tar.gz")
+
+	//wget "https://downloads.d2iq.com/dkp/v2.2.1/dkp-kommander-charts-bundle-v2.2.1.tar.gz" -O - | tar -xvf -
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz", "download/dkp-kommander-charts-bundle-"+dkpversion+".tar")
+	decompress("download/dkp-kommander-charts-bundle-"+dkpversion+".tar", "download")
+	err = os.Remove("download/dkp-kommander-charts-bundle-" + dkpversion + ".tar")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-insights-image-bundle-"+dkpversion+".tar.gz", "download/dkp-insights-image-bundle.tar.gz")
 
-	//remove KIB tar fil
 	//compress all resources into archive
 	compress("./download", dkpversion)
 	//delete remaining files
+
+	return nil
 }
 
 func downloadFile(url string, path string) {
@@ -876,11 +911,25 @@ func decompress(src string, dest string) error {
 	if err != nil {
 		os.Exit(1)
 	}
-	gzf, err := gzip.NewReader(f)
-	if err != nil {
-		fmt.Println(err)
+
+	var tarReader *tar.Reader
+
+	if strings.Contains(src, "tar.gz") {
+		gzf, err := gzip.NewReader(f)
+		if err != nil {
+			fmt.Println(err)
+		}
+		tarReader = tar.NewReader(gzf)
+
+	} else if strings.Contains(src, ".tar") {
+		tarReader = tar.NewReader(f)
+	} else {
+		fmt.Println("Error: File is not in a compatible archive format")
+		fmt.Println("Must be either tar or gzip archive")
+
+		return err
 	}
-	tarReader := tar.NewReader(gzf)
+
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -947,26 +996,30 @@ func copy(src, dst string) error {
 	return err
 }
 
-func seedRegistry(host string, user string, password string) {
+func seedRegistry(host string, user string, password string, version string) {
 
+	registryURL := strings.ReplaceAll(host, "https://", "")
+	registryURL = strings.ReplaceAll(registryURL, "http://", "")
+
+	fmt.Println("Pushing Konvoy Image Bundle to Registry")
 	// ./dkp push image-bundle --image-bundle konvoy-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
-	cmd := exec.Command("./dkp", "push", "image-bundle", "konvoy-image-bundle.tar.gz", "--to-registry", host, "--to-registry-username", user, "--to-registry-password", password)
+	cmd := exec.Command("./dkp", "push", "image-bundle", "--image-bundle", "konvoy-image-bundle.tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	fmt.Println("Pushing Kommander Image Bundle to Registry")
 	// ./dkp push image-bundle --image-bundle kommander-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
-	cmd = exec.Command("./dkp", "push", "image-bundle", "kommander-image-bundle.tar.gz", "--to-registry", host, "--to-registry-username", user, "--to-registry-password", password)
+	cmd = exec.Command("./dkp", "push", "image-bundle", "--image-bundle", "kommander-image-bundle-"+version+".tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
 	output, err = cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	fmt.Println("Pushing DKP Insights Image Bundle to Registry")
 	// ./dkp push image-bundle --image-bundle dkp-insights-image-bundle-v2.2.0.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
-	cmd = exec.Command("./dkp", "push", "image-bundle", "dkp-insights-image-bundle.tar.gz", "--to-registry", host, "--to-registry-username", user, "--to-registry-password", password)
+	cmd = exec.Command("./dkp", "push", "image-bundle", "--image-bundle", "dkp-insights-image-bundle.tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
 	output, err = cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
@@ -974,11 +1027,14 @@ func seedRegistry(host string, user string, password string) {
 	}
 
 }
-func seedHosts(dkpVersion string, bundleOs string) {
 
+func seedHosts(osVersion string, bundleOs string) {
+
+	fmt.Println("Using Konvoy Image Builder to upload artifacts to hosts")
 	// ./konvoy-image upload artifacts --container-images-dir=./artifacts/images/ --os-packages-bundle=./artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz --pip-packages-bundle=./artifacts/pip-packages.tar.gz
-	cmd := exec.Command("./kib/konvoy-image", "upload", "artifacts", "--container-images-dir=./kib/artifacts/images/",
-		"--os-packages-bundle=./kib/artifacts/"+dkpVersion+"_"+bundleOs+".tar.gz", "--pip-packages-bundle=./kib/artifacts/pip-packages.tar.gz")
+	cmd := exec.Command("./konvoy-image", "upload", "artifacts", "--container-images-dir=artifacts/images/",
+		"--os-packages-bundle=artifacts/"+osVersion+"_"+bundleOs+".tar.gz", "--pip-packages-bundle=artifacts/pip-packages.tar.gz")
+	cmd.Dir = ("kib")
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
@@ -986,8 +1042,9 @@ func seedHosts(dkpVersion string, bundleOs string) {
 	}
 }
 func loadBootstrapImage(version string) {
+	fmt.Println("Loading the konvoy bootstrap docker image from file")
 	// docker load -i konvoy-bootstrap_v2.2.0.tar
-	cmd := exec.Command("docker", "load", "-i", "konvoy-bootstrap_v"+version+".tar")
+	cmd := exec.Command("docker", "load", "-i", "konvoy-bootstrap_"+version+".tar")
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
