@@ -13,10 +13,11 @@ import (
 func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool) {
 
 	override := kibOverride{}
+
 	// Full Path with http(s)://
 	registryURL := registryInfo.Host
 
-	// No Protocol, do this more elegantly later on
+	//Strip Protocol or we get an error, do this more elegantly later on
 	registryADDR := strings.ReplaceAll(registryURL, "https://", "")
 	registryADDR = strings.ReplaceAll(registryADDR, "http://", "")
 
@@ -26,24 +27,33 @@ func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool
 	//			https://harbor-registry.com/v2/registry
 	//
 	//If port specifed, do nothing
+	//
+	// Special Case: Docker Creds for docker.io
+	//
+	// registry-1.docker.io
+	//
+	//
+
+	//if this address doesn't a port
 	if !strings.Contains(registryADDR, ":") {
+		//don't insert a /v2/ for docker's official registry
+		if !(registryADDR == "registry-1.docker.io") {
+			// https://harbor-registry.
+			periodIndex := strings.LastIndex(registryURL, ".")
 
-		// https://harbor-registry.
-		periodIndex := strings.LastIndex(registryURL, ".")
+			// https://harbor-registry.
+			firstHalf := registryURL[:periodIndex]
+			// com/registry
+			secondHalf := registryURL[periodIndex:]
 
-		// https://harbor-registry.
-		firstHalf := registryURL[:periodIndex]
-		// com/registry
-		secondHalf := registryURL[periodIndex:]
+			secondHalf = strings.Replace(secondHalf, "/", "/v2/", 1)
 
-		secondHalf = strings.Replace(secondHalf, "/", "/v2/", 1)
+			registryURL = firstHalf + secondHalf
 
-		registryURL = firstHalf + secondHalf
+			//for the auth section we need to remove the sub path
 
-		//for the auth section we need to remove the sub path
-
-		registryADDR = registryADDR[:strings.LastIndex(registryADDR, "/")]
-
+			registryADDR = registryADDR[:strings.LastIndex(registryADDR, "/")]
+		}
 	}
 
 	// If this is an Air Gap Registry override
@@ -66,6 +76,7 @@ func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool
 				IdentityToken: "",
 			})
 	}
+
 	// If this is a regular Registry Override
 	if !airgap && nodes.Flags["registry"] {
 
@@ -84,6 +95,7 @@ func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool
 				IdentityToken: "",
 			})
 	}
+
 	// GPUs are not supported in Air Gap in 2.2.0
 	if nodes.Flags["gpu"] && !airgap {
 		override.Gpu.Types = append(override.Gpu.Types, "nvidia")
