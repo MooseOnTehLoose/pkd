@@ -22,7 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const pkdVersion = "v0.2.0-2.2.0-beta1"
+const pkdVersion = "v1.0.1-dkp2.2.2"
 
 func main() {
 
