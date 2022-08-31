@@ -51,9 +51,11 @@ func generateKubeadmControlPlane(cluster pkdCluster) {
 	kcp.Spec.KubeadmConfigSpec.Format = "cloud-config"
 	kcp.Spec.KubeadmConfigSpec.InitConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
 	kcp.Spec.KubeadmConfigSpec.InitConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
+	kcp.Spec.KubeadmConfigSpec.InitConfiguration.NodeRegistration.KubeletExtraArgs.ProviderID = "'{{ .ProviderID }}'"
 	kcp.Spec.KubeadmConfigSpec.InitConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
 	kcp.Spec.KubeadmConfigSpec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
 	kcp.Spec.KubeadmConfigSpec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
+	kcp.Spec.KubeadmConfigSpec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.ProviderID = "'{{ .ProviderID }}'"
 	kcp.Spec.KubeadmConfigSpec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
 	kcp.Spec.KubeadmConfigSpec.PreKubeadmCommands = append(kcp.Spec.KubeadmConfigSpec.PreKubeadmCommands,
 		"systemctl daemon-reload")

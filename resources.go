@@ -114,6 +114,7 @@ type KubeadmControlPlane struct {
 					CriSocket        string `yaml:"criSocket"`
 					KubeletExtraArgs struct {
 						CloudProvider   string `yaml:"cloud-provider"`
+						ProviderID      string `yaml:"provider-id"`
 						VolumePluginDir string `yaml:"volume-plugin-dir"`
 					} `yaml:"kubeletExtraArgs"`
 				} `yaml:"nodeRegistration"`
@@ -125,6 +126,7 @@ type KubeadmControlPlane struct {
 					CriSocket        string `yaml:"criSocket"`
 					KubeletExtraArgs struct {
 						CloudProvider   string `yaml:"cloud-provider"`
+						ProviderID      string `yaml:"provider-id"`
 						VolumePluginDir string `yaml:"volume-plugin-dir"`
 					} `yaml:"kubeletExtraArgs"`
 				} `yaml:"nodeRegistration"`
@@ -252,6 +254,7 @@ type KubeadmConfigTemplate struct {
 						CriSocket        string `yaml:"criSocket"`
 						KubeletExtraArgs struct {
 							CloudProvider   string `yaml:"cloud-provider"`
+							ProviderID      string `yaml:"provider-id"`
 							VolumePluginDir string `yaml:"volume-plugin-dir"`
 						} `yaml:"kubeletExtraArgs"`
 					} `yaml:"nodeRegistration"`

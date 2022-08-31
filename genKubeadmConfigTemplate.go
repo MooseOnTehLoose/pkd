@@ -60,6 +60,7 @@ func generateKubeadmConfigTemplate(cluster pkdCluster) {
 		kct.Spec.Template.Spec.Format = "cloud-config"
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""
+		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.ProviderID = "'{{ .ProviderID }}'"
 		kct.Spec.Template.Spec.JoinConfiguration.NodeRegistration.KubeletExtraArgs.VolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
 		kct.Spec.Template.Spec.PreKubeadmCommands = append(kct.Spec.Template.Spec.PreKubeadmCommands,
 			"systemctl daemon-reload",
