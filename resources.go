@@ -12,9 +12,10 @@ type NodePool struct {
 	Flags map[string]bool
 }
 type AirGap struct {
-	Enabled    bool   `yaml:"enabled"`
-	OsVersion  string `yaml:"osversion,omitempty"`
-	K8sVersion string `yaml:"k8sversion,omitempty"`
+	Enabled           bool   `yaml:"enabled"`
+	OsVersion         string `yaml:"osversion,omitempty"`
+	K8sVersion        string `yaml:"k8sversion,omitempty"`
+	ContainerdVersion string `yaml:"containerdversion,omitempty"`
 }
 type MetaData struct {
 	DKPversion          string `yaml:"dkpversion"`
