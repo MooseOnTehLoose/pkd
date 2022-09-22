@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/schollz/progressbar/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,8 +35,13 @@ func main() {
 		switch {
 		//init
 		case arg1 == "init":
-			fmt.Println("Generating cluster.yaml")
-			initYaml()
+			if argNum >= 3 && os.Args[2] == "ag" {
+				fmt.Println("Generating air gap cluster.yaml")
+				initAGYaml()
+			} else {
+				fmt.Println("Generating cluster.yaml")
+				initYaml()
+			}
 		case arg1 == "airgap":
 			fmt.Println("Downloading all Air Gap Resources")
 			err := createAirGapBundle(loadCluster())
@@ -50,43 +56,10 @@ func main() {
 			} else {
 				up("normal")
 			}
-		//bootstrap
-		case arg1 == "bootstrap":
-			//If no 2nd arg given, just create the bootstrap.
-			//If given, either create or delete the bootstrap
-			if argNum == 2 {
-				fmt.Printf("Creating bootstrap cluster")
-				bootstrap("up")
-			} else if argNum == 3 {
-				if os.Args[2] == "up" {
-					fmt.Printf("Creating bootstrap cluster")
-					bootstrap("up")
-				} else if os.Args[2] == "down" {
-					fmt.Printf("Deleting bootstrap cluster")
-					bootstrap("down")
-				} else {
-					fmt.Printf("Error, Arg invalid. Usage:")
-				}
-			}
-		//apply
-		case arg1 == "apply":
-			fmt.Printf("Applying cluster resources to deploy cluster")
-		//pivot
-		case arg1 == "pivot":
-			fmt.Printf("Pivoting cluster from boostrap")
-		//merge
-		case arg1 == "merge":
-			if argNum == 3 {
-				fmt.Printf("Merging " + os.Args[2] + " kubeconfig into ~/.kube/config\n")
-				mergeKubeconfig(os.Args[2])
-			} else {
-				fmt.Println("Usage:\n  pkd merge <cluster-name>")
-			}
 		case arg1 == "version":
 
 			fmt.Println("PKD Version: " + pkdVersion)
-			//check if the dkp and kommander cli are present
-			//kubectl --kubeconfig ${CLUSTER_NAME}.conf wait --for=condition=Ready "cluster/${CLUSTER_NAME}" --timeout=40m
+			//check if the dkp cli is present
 			cmd := exec.Command("./dkp", "version")
 
 			//run the command
@@ -95,27 +68,19 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-		case arg1 == "get-bundle":
-			cluster := loadCluster()
-			fmt.Printf("Cluster YAML loaded into PKD\n")
-			createAirGapBundle(cluster)
-
 		//no args or bad args
 		default:
 			fmt.Printf("Usage:\n" +
-				" pkd 						prints usage\n" +
-				" pkd init					create cluster.yaml and kommander.yaml templates\n" +
+				" pkd init [ag]				create cluster.yaml for on prem or air gap\n" +
+				" pkd airgap				download all airgap resources and create a tar.gz bundle\n" +
 				" pkd up [yee-haw]			create all yaml resources needed to deploy a cluster, optional cowboy mode\n" +
-				" pkd bootstrap [up/down]	control the bootstrap cluster\n" +
-				" pkd version				grab the PKD, DKP and Kommander cli versions\n" +
-				" pkd get-bundle			download an airgap bundle\n" +
-				" pkd unzip-bundle			unpack an airgap bundle into the current directory\n\n")
+				" pkd version				grab the PKD, DKP and Kommander cli versions\n")
 		}
 
 	}
 }
 
-//Read in cluster.yaml and start the cluster creation process
+// Read in cluster.yaml and start the cluster creation process
 func up(modifier string) {
 
 	//We need to generate the folder to store our k8s objects after creation
@@ -434,6 +399,7 @@ func initYaml() {
 		NodePools:    map[string]NodePool{},
 	}
 	exampleCluster.MetaData.DKPversion = "v2.2.0"
+	exampleCluster.MetaData.KIBVersion = "v1.17.2"
 	exampleCluster.MetaData.Name = "demo-cluster"
 	exampleCluster.MetaData.SshUser = "user"
 	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
@@ -445,8 +411,6 @@ func initYaml() {
 	exampleCluster.MetaData.ServiceSubnet = "10.96.0.0/12"
 	exampleCluster.MetaData.MetalAddressRange = "10.0.0.20-10.0.0.24"
 	exampleCluster.AirGap.Enabled = false
-	exampleCluster.AirGap.K8sVersion = "1.22.8"
-	exampleCluster.AirGap.OsVersion = "centos_7_x86_64"
 	exampleCluster.Registry.Host = "https://registry-1.docker.io"
 	exampleCluster.Registry.Username = "user"
 	exampleCluster.Registry.Password = "pass"
@@ -501,6 +465,7 @@ func initAGYaml() {
 		NodePools:    map[string]NodePool{},
 	}
 	exampleCluster.MetaData.DKPversion = "v2.2.2"
+	exampleCluster.MetaData.KIBVersion = "v1.17.2"
 	exampleCluster.MetaData.Name = "demo-cluster"
 	exampleCluster.MetaData.SshUser = "user"
 	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
@@ -515,6 +480,8 @@ func initAGYaml() {
 	exampleCluster.AirGap.K8sVersion = "1.22.8"
 	exampleCluster.AirGap.OsVersion = "centos_7_x86_64"
 	exampleCluster.AirGap.ContainerdVersion = "centos-7.9-x86_64"
+	exampleCluster.AirGap.IncludePKD = true
+	exampleCluster.AirGap.PKDoS = "linux"
 	exampleCluster.Registry.Host = "https://registry-1.docker.io"
 	exampleCluster.Registry.Username = "user"
 	exampleCluster.Registry.Password = "pass"
@@ -822,124 +789,110 @@ func createAirGapBundle(cluster pkdCluster) error {
 	k8sversion := cluster.AirGap.K8sVersion
 	dkpversion := cluster.MetaData.DKPversion
 	cdversion := cluster.AirGap.ContainerdVersion
+	kibVersion := cluster.MetaData.KIBVersion
+	downloadFolder := cluster.MetaData.Name
 
 	if osversion == "" || k8sversion == "" || dkpversion == "" || cdversion == "" {
 		err := errors.New("you must set osversion, k8sversion, dkpversion and containerdversion in cluster.yaml")
 		return err
 	}
 
-	err := os.MkdirAll("download/kib/artifacts/images", 0755)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	//download all resources for specific versions
-
-	//unznip DKP
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp_"+dkpversion+"_linux_amd64.tar.gz", "download/dkp_"+dkpversion+"_linux_amd64.tar.gz")
-	decompress("download/dkp_"+dkpversion+"_linux_amd64.tar.gz", "download")
-
-	//unzip KIB  into kib dir
-	downloadFile("https://github.com/mesosphere/konvoy-image-builder/releases/download/v1.12.0/konvoy-image-bundle-v1.17.2_linux_amd64.tar.gz", "download/konvoy-image-bundle-v1.17.2_linux_amd64.tar.gz")
-	decompress("download/konvoy-image-bundle-v1.17.2_linux_amd64.tar.gz", "download/kib")
-	//remove KIB tar fil
-	err = os.Remove("download/konvoy-image-bundle-v1.12.0_linux_amd64.tar.gz")
-	if err != nil {
-		log.Fatal(err)
-	}
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy-bootstrap_"+dkpversion+".tar", "download/konvoy-bootstrap_"+dkpversion+".tar")
-
-	//curl --output artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz --location https://downloads.d2iq.com/dkp/airgapped/os-packages/"$VERSION"_"$BUNDLE_OS".tar.gz
-	downloadFile("https://downloads.d2iq.com/dkp/airgapped/os-packages/"+k8sversion+"_"+osversion+".tar.gz", "download/kib/artifacts/"+k8sversion+"_"+osversion+".tar.gz")
-
-	//curl --output artifacts/images/"$VERSION"_images.tar.gz --location https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"$VERSION"_images.tar.gz
-	downloadFile("https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"+k8sversion+"_images.tar.gz", "download/kib/artifacts/images/"+k8sversion+"_images.tar.gz")
-
-	downloadFile("https://downloads.d2iq.com/dkp/airgapped/pip-packages/pip-packages.tar.gz", "download/kib/artifacts/pip-packages.tar.gz")
-
-	if dkpversion == "v2.2.2" && cluster.AirGap.Enabled {
-		//curl --output artifacts/containerd-1.4.13-d2iq.1-"$CONTAINERD_OS".tar.gz --location https://packages.d2iq.com/dkp/containerd/containerd-1.4.13-d2iq.1-"$CONTAINERD_OS".tar.gz
-		downloadFile("https://packages.d2iq.com/dkp/containerd/containerd-1.4.13-d2iq.1-"+cdversion+".tar.gz", "download/kib/artifacts/containerd-1.4.13-d2iq.1-"+cdversion+".tar.gz")
-
-	}
-
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy_image_bundle_"+dkpversion+"_linux_amd64.tar.gz", "download/konvoy-image-bundle.tar.gz")
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-image-bundle-"+dkpversion+".tar.gz", "download/archived-kommander-image-bundle.tar")
-	decompress("download/archived-kommander-image-bundle.tar", "download")
-	err = os.Remove("download/archived-kommander-image-bundle.tar")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// wget "https://downloads.d2iq.com/dkp/v2.2.1/kommander-applications-v2.2.1.tar.gz"
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-applications-"+dkpversion+".tar.gz", "download/kommander-applications-"+dkpversion+".tar.gz")
-
-	//wget "https://downloads.d2iq.com/dkp/v2.2.1/dkp-kommander-charts-bundle-v2.2.1.tar.gz" -O - | tar -xvf -
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz", "download/dkp-kommander-charts-bundle-"+dkpversion+".tar")
-	decompress("download/dkp-kommander-charts-bundle-"+dkpversion+".tar", "download")
-	err = os.Remove("download/dkp-kommander-charts-bundle-" + dkpversion + ".tar")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-insights-image-bundle-"+dkpversion+".tar.gz", "download/dkp-insights-image-bundle-"+dkpversion+".tar")
-	decompress("download/dkp-insights-image-bundle-"+dkpversion+".tar", "download")
-	err = os.Remove("download/dkp-insights-image-bundle-" + dkpversion + ".tar")
+	err := os.MkdirAll(downloadFolder+"/kib/artifacts/images", 0755)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// download PKD
-
-	fmt.Println("Include PKD in Airgap Bundle? y/n")
-	var dl string
-	fmt.Scanln(&dl)
-
-	if dl == "y" || dl == "Y" || dl == "Yes" || dl == "yes" {
-
-		err = copy("cluster.yaml", "download/cluster.yaml")
+	if cluster.AirGap.IncludePKD {
+		err = copy("cluster.yaml", downloadFolder+"/cluster.yaml")
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("Which OS type for remote System? Choices are: linux/nix, macos/mac, windows/win")
-		// var then variable name then variable type
-		var osType string
 
-		// Taking input from user
-		fmt.Scanln(&osType)
 		switch {
 
-		case osType == "windows" || osType == "win":
-			downloadFile("https://github.com/MooseOnTehLoose/pkd/releases/download/"+pkdVersion+"/pkd.exe", "download/pkd.exe")
+		case cluster.AirGap.PKDoS == "windows":
+			downloadFile("https://github.com/MooseOnTehLoose/pkd/releases/download/"+pkdVersion+"/pkd.exe", downloadFolder+"/pkd.exe")
 
-		case osType == "macos" || osType == "mac":
-			downloadFile("https://github.com/MooseOnTehLoose/pkd/releases/download/"+pkdVersion+"/pkd-darwin-amd64", "download/pkd")
+		case cluster.AirGap.PKDoS == "macos":
+			downloadFile("https://github.com/MooseOnTehLoose/pkd/releases/download/"+pkdVersion+"/pkd-darwin-amd64", downloadFolder+"/pkd")
 
-		case osType == "linux" || osType == "nix":
+		case cluster.AirGap.PKDoS == "linux":
 
-			downloadFile("https://github.com/MooseOnTehLoose/pkd/releases/download/"+pkdVersion+"/pkd-linux-amd64", "download/pkd")
+			downloadFile("https://github.com/MooseOnTehLoose/pkd/releases/download/"+pkdVersion+"/pkd-linux-amd64", downloadFolder+"/pkd")
 
 		default:
-			fmt.Println("Error: Invalid OS Type Specified, Skipping")
+			fmt.Println("Error: Invalid OS Type Specified, Skipping\nValid Architecture choices are: linux, macos, windows")
 
 		}
+	}
+	//download all resources for specific versions
 
-	} else {
+	//unznip DKP
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp_"+dkpversion+"_linux_amd64.tar.gz", downloadFolder+"/dkp_"+dkpversion+"_linux_amd64.tar.gz")
+	decompress(downloadFolder+"/dkp_"+dkpversion+"_linux_amd64.tar.gz", downloadFolder)
 
-		fmt.Println("Skipping PKD for AirGap Bundle")
+	//unzip KIB  into kib dir
+	downloadFile("https://github.com/mesosphere/konvoy-image-builder/releases/download/"+kibVersion+"/konvoy-image-bundle-"+kibVersion+"_linux_amd64.tar.gz", downloadFolder+"/konvoy-image-bundle-"+kibVersion+"_linux_amd64.tar.gz")
+	decompress(downloadFolder+"/konvoy-image-bundle-"+kibVersion+"_linux_amd64.tar.gz", downloadFolder+"/kib")
+	//remove KIB tar fil
+	err = os.Remove("" + downloadFolder + "/konvoy-image-bundle-" + kibVersion + "_linux_amd64.tar.gz")
+	if err != nil {
+		log.Fatal(err)
+	}
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy-bootstrap_"+dkpversion+".tar", downloadFolder+"/konvoy-bootstrap_"+dkpversion+".tar")
+
+	//curl --output artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz --location https://downloads.d2iq.com/dkp/airgapped/os-packages/"$VERSION"_"$BUNDLE_OS".tar.gz
+	downloadFile("https://downloads.d2iq.com/dkp/airgapped/os-packages/"+k8sversion+"_"+osversion+".tar.gz", downloadFolder+"/kib/artifacts/"+k8sversion+"_"+osversion+".tar.gz")
+
+	//curl --output artifacts/images/"$VERSION"_images.tar.gz --location https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"$VERSION"_images.tar.gz
+	downloadFile("https://downloads.d2iq.com/dkp/airgapped/kubernetes-images/"+k8sversion+"_images.tar.gz", downloadFolder+"/kib/artifacts/images/"+k8sversion+"_images.tar.gz")
+
+	downloadFile("https://downloads.d2iq.com/dkp/airgapped/pip-packages/pip-packages.tar.gz", downloadFolder+"/kib/artifacts/pip-packages.tar.gz")
+
+	if dkpversion == "v2.2.2" && cluster.AirGap.Enabled {
+		//curl --output artifacts/containerd-1.4.13-d2iq.1-"$CONTAINERD_OS".tar.gz --location https://packages.d2iq.com/dkp/containerd/containerd-1.4.13-d2iq.1-"$CONTAINERD_OS".tar.gz
+		downloadFile("https://packages.d2iq.com/dkp/containerd/containerd-1.4.13-d2iq.1-"+cdversion+".tar.gz", downloadFolder+"/kib/artifacts/containerd-1.4.13-d2iq.1-"+cdversion+".tar.gz")
 
 	}
 
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/konvoy_image_bundle_"+dkpversion+"_linux_amd64.tar.gz", downloadFolder+"/konvoy-image-bundle.tar.gz")
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-image-bundle-"+dkpversion+".tar.gz", downloadFolder+"/archived-kommander-image-bundle.tar")
+	decompress(downloadFolder+"/archived-kommander-image-bundle.tar", downloadFolder)
+	err = os.Remove("" + downloadFolder + "/archived-kommander-image-bundle.tar")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// wget "https://downloads.d2iq.com/dkp/v2.2.1/kommander-applications-v2.2.1.tar.gz"
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/kommander-applications-"+dkpversion+".tar.gz", downloadFolder+"/kommander-applications-"+dkpversion+".tar.gz")
+
+	//wget "https://downloads.d2iq.com/dkp/v2.2.1/dkp-kommander-charts-bundle-v2.2.1.tar.gz" -O - | tar -xvf -
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-kommander-charts-bundle-"+dkpversion+".tar.gz", downloadFolder+"/dkp-kommander-charts-bundle-"+dkpversion+".tar")
+	decompress(downloadFolder+"/dkp-kommander-charts-bundle-"+dkpversion+".tar", downloadFolder)
+	err = os.Remove("" + downloadFolder + "/dkp-kommander-charts-bundle-" + dkpversion + ".tar")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	downloadFile("https://downloads.d2iq.com/dkp/"+dkpversion+"/dkp-insights-image-bundle-"+dkpversion+".tar.gz", downloadFolder+"/dkp-insights-image-bundle-"+dkpversion+".tar")
+	decompress(downloadFolder+"/dkp-insights-image-bundle-"+dkpversion+".tar", downloadFolder)
+	err = os.Remove("" + downloadFolder + "/dkp-insights-image-bundle-" + dkpversion + ".tar")
+	if err != nil {
+		log.Fatal(err)
+	}
 	//compress all resources into archive
-	compress("./download", dkpversion)
+	compress(downloadFolder, dkpversion)
 	//delete remaining files
 
 	return nil
 }
 
 func downloadFile(url string, path string) {
+	fmt.Printf("Downloading: " + path + "\n")
 
-	resp, err := http.Get(url)
+	req, _ := http.NewRequest("GET", url, nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -951,40 +904,53 @@ func downloadFile(url string, path string) {
 	}
 	defer out.Close()
 
+	bar := progressbar.DefaultBytes(
+		resp.ContentLength,
+		"downloading",
+	)
 	// Write the body to file
-	_, err = io.Copy(out, resp.Body)
+	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	fmt.Println("Downloaded: " + url + "\n To: " + path)
 }
 
-//used to create the final AirGap Bundle
+// used to create the final AirGap Bundle
 func compress(downloadpath string, version string) {
+
 	var dirBuffer bytes.Buffer
+
 	gzipWriter := gzip.NewWriter(&dirBuffer)
 	tarWriter := tar.NewWriter(gzipWriter)
+
+	tarBar := progressbar.DefaultBytes(
+		-1,
+		"Building Tar Bundle",
+	)
 
 	// walk through every file in the folder
 	if err := filepath.Walk(downloadpath, func(path string, info fs.FileInfo, funcErr error) error {
 
+		//This header represents either a file or directory
 		header, err := tar.FileInfoHeader(info, path)
 		if err != nil {
 			return err
 		}
 		header.Name = filepath.ToSlash(path)
-		// write header
+
+		// write header to the tar file
 		if err := tarWriter.WriteHeader(header); err != nil {
 			return err
 		}
-		// if not a dir, write file content
+
+		// if not a dir, write file content to the tar object
 		if !info.IsDir() {
+
 			data, err := os.Open(path)
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(tarWriter, data); err != nil {
+			if _, err := io.Copy(io.MultiWriter(tarWriter, tarBar), data); err != nil {
 				return err
 			}
 		}
@@ -1001,13 +967,17 @@ func compress(downloadpath string, version string) {
 	}
 
 	// write the .tar.gzip
-	fileToWrite, err := os.OpenFile("./AirGapBundle-dkp"+version+".tar.gz", os.O_CREATE|os.O_RDWR, os.FileMode(0755))
+	fileToWrite, err := os.OpenFile("./AirGapBundle-dkp-"+version+".tar.gz", os.O_CREATE|os.O_RDWR, os.FileMode(0755))
 	if err != nil {
 		panic(err)
 	}
+
+	// Dump the byte buffer to a tar.gz file
 	if _, err := io.Copy(fileToWrite, &dirBuffer); err != nil {
 		panic(err)
 	}
+
+	fmt.Printf("\n\nAirGap Bundle now available: AirGapBundle-dkp-" + version + ".tar.gz\n\n")
 
 }
 
