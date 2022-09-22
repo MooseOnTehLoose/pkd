@@ -16,9 +16,12 @@ type AirGap struct {
 	OsVersion         string `yaml:"osversion,omitempty"`
 	K8sVersion        string `yaml:"k8sversion,omitempty"`
 	ContainerdVersion string `yaml:"containerdversion,omitempty"`
+	IncludePKD        bool   `yaml:"includepkd,omitempty"`
+	PKDoS             string `yaml:"pkdos,omitempty"`
 }
 type MetaData struct {
 	DKPversion          string `yaml:"dkpversion"`
+	KIBVersion          string `yaml:"kibversion"`
 	Name                string `yaml:"name"`
 	SshUser             string `yaml:"sshuser"`
 	SshPrivateKey       string `yaml:"sshprivatekey"`
@@ -322,7 +325,7 @@ type capiCluster struct {
 	} `yaml:"spec"`
 }
 
-//this class is used to read in a generic k8s object from the dry run output. We don't know what it will be until we look
+// this class is used to read in a generic k8s object from the dry run output. We don't know what it will be until we look
 type k8sObject struct {
 	APIVersion string                 `yaml:"apiVersion,omitempty"`
 	Kind       string                 `yaml:"kind,omitempty"`
