@@ -1,13 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generateControlPlanePreprovisionedMachineTemplate2_6_0(cluster pkdCluster) {
+func generateControlPlanePreprovisionedMachineTemplate(cluster pkdCluster) {
 
 	nodesetName := "control-plane"
 	nodes := cluster.Controlplane
@@ -26,7 +26,7 @@ func generateControlPlanePreprovisionedMachineTemplate2_6_0(cluster pkdCluster) 
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
+	err = os.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

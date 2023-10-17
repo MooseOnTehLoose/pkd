@@ -1,14 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generateInventory2_6_0(cluster pkdCluster) {
+func generateInventory(cluster pkdCluster) {
 
 	clusterInventory := Inventory{
 		All: struct {
@@ -46,7 +45,7 @@ func generateInventory2_6_0(cluster pkdCluster) {
 		log.Fatal(err)
 	}
 	os.MkdirAll("kib", os.ModePerm)
-	err = ioutil.WriteFile("kib/inventory.yaml", file, 0644)
+	err = os.WriteFile("kib/inventory.yaml", file, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

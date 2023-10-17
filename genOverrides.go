@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -106,7 +106,7 @@ func genOverride2_6_0(name string, nodes NodePool, registryInfo Registry, airgap
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = ioutil.WriteFile("overrides/"+name+".yaml", data, 0644)
+	err = os.WriteFile("overrides/"+name+".yaml", data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

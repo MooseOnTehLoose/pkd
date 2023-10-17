@@ -2,14 +2,14 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generateMlbConfigMap2_6_0(cluster pkdCluster) {
+func generateMlbConfigMap(cluster pkdCluster) {
 
 	mlb := mlbConfigMap{}
 	mlb.APIVersion = "v1"
@@ -27,7 +27,7 @@ func generateMlbConfigMap2_6_0(cluster pkdCluster) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-Metal-LB-ConfigMap.yaml", data, 0644)
+	err = os.WriteFile("resources/"+cluster.MetaData.Name+"-Metal-LB-ConfigMap.yaml", data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

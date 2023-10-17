@@ -9,7 +9,7 @@ import (
 )
 
 // if 1 CP use alternate structure, otherwise just generate from defaults
-func generateKubeadmControlPlane2_6_0(cluster pkdCluster) {
+func generateKubeadmControlPlane(cluster pkdCluster) {
 	controlPlaneReplicas := strconv.Itoa(len(cluster.Controlplane.Hosts))
 	kcp := KubeadmControlPlane{}
 	kcp.APIVersion = "controlplane.cluster.x-k8s.io/v1beta1"
@@ -47,7 +47,6 @@ func generateKubeadmControlPlane2_6_0(cluster pkdCluster) {
 
 	kcp.Spec.KubeadmConfigSpec.ClusterConfiguration.ControllerManager.ExtraArgs.CloudProvider = ""
 	kcp.Spec.KubeadmConfigSpec.ClusterConfiguration.ControllerManager.ExtraArgs.FlexVolumePluginDir = "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
-	kcp.Spec.KubeadmConfigSpec.ClusterConfiguration.Etcd.Local.ImageTag = "3.4.13-0"
 	kcp.Spec.KubeadmConfigSpec.Format = "cloud-config"
 	kcp.Spec.KubeadmConfigSpec.InitConfiguration.NodeRegistration.CriSocket = "/run/containerd/containerd.sock"
 	kcp.Spec.KubeadmConfigSpec.InitConfiguration.NodeRegistration.KubeletExtraArgs.CloudProvider = ""

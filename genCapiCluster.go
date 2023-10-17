@@ -1,13 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generateCapiCluster2_6_0(cluster pkdCluster) {
+func generateCapiCluster(cluster pkdCluster) {
 
 	capppCluster := capiCluster{
 		APIVersion: "",
@@ -80,7 +80,7 @@ func generateCapiCluster2_6_0(cluster pkdCluster) {
 		log.Fatal(err)
 	}
 	//${CLUSTER_NAME}-Cluster.yaml
-	err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-Cluster.yaml", file, 0644)
+	err = os.WriteFile("resources/"+cluster.MetaData.Name+"-Cluster.yaml", file, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

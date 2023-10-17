@@ -1,13 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generateCalicoConfigMap2_6_0(cluster pkdCluster) {
+func generateCalicoConfigMap(cluster pkdCluster) {
 
 	customResources :=
 		"apiVersion: operator.tigera.io/v1\n" +
@@ -38,7 +38,7 @@ func generateCalicoConfigMap2_6_0(cluster pkdCluster) {
 		log.Fatal(err)
 	}
 	//calico-cni-installation-${cluster_name}-ConfigMap.yaml
-	err = ioutil.WriteFile("resources/calico-cni-installation-"+cluster.MetaData.Name+"-ConfigMap.yaml", file, 0644)
+	err = os.WriteFile("resources/calico-cni-installation-"+cluster.MetaData.Name+"-ConfigMap.yaml", file, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

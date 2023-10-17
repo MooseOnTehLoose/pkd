@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generatePreprovisionedMachineTemplate2_6_0(cluster pkdCluster) {
+func generatePreprovisionedMachineTemplate(cluster pkdCluster) {
 	for nodesetName, nodes := range cluster.NodePools {
 		pmt := PreprovisionedMachineTemplate{}
 		pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"

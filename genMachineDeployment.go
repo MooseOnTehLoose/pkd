@@ -1,13 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generateMachineDeployment2_6_0(cluster pkdCluster) {
+func generateMachineDeployment(cluster pkdCluster) {
 
 	for nodesetName, nodes := range cluster.NodePools {
 
@@ -36,13 +36,13 @@ func generateMachineDeployment2_6_0(cluster pkdCluster) {
 		md.Spec.Template.Spec.InfrastructureRef.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
 		md.Spec.Template.Spec.InfrastructureRef.Kind = "PreprovisionedMachineTemplate"
 		md.Spec.Template.Spec.InfrastructureRef.Name = cluster.MetaData.Name + "-" + nodesetName
-		md.Spec.Template.Spec.Version = "v1.22.8"
+		md.Spec.Template.Spec.Version = "v1.26.6"
 
 		data, err := yaml.Marshal(&md)
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-MachineDeployment.yaml", data, 0644)
+		err = os.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-MachineDeployment.yaml", data, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
