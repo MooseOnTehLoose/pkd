@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateMachineDeployment(cluster pkdCluster) {
+func generateMachineDeployment2_6_0(cluster pkdCluster) {
 
 	for nodesetName, nodes := range cluster.NodePools {
 

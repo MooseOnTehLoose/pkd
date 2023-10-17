@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func genOverride(name string, nodes NodePool, registryInfo Registry, airgap bool) {
+func genOverride2_6_0(name string, nodes NodePool, registryInfo Registry, airgap bool) {
 
 	override := kibOverride{}
 

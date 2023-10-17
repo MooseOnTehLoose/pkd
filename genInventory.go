@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateInventory(cluster pkdCluster) {
+func generateInventory2_6_0(cluster pkdCluster) {
 
 	clusterInventory := Inventory{
 		All: struct {

@@ -1,13 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-func generatePreprovisionedMachineTemplate(cluster pkdCluster) {
+func generatePreprovisionedMachineTemplate2_6_0(cluster pkdCluster) {
 	for nodesetName, nodes := range cluster.NodePools {
 		pmt := PreprovisionedMachineTemplate{}
 		pmt.APIVersion = "infrastructure.cluster.konvoy.d2iq.io/v1alpha1"
@@ -18,13 +18,13 @@ func generatePreprovisionedMachineTemplate(cluster pkdCluster) {
 		pmt.Spec.Template.Spec.InventoryRef.Namespace = "default"
 		pmt.Spec.Template.Spec.OverrideRef.Name = cluster.MetaData.Name + "-" + nodesetName + "-override"
 
-		genOverride(pmt.Spec.Template.Spec.OverrideRef.Name, nodes, cluster.Registry, cluster.AirGap.Enabled)
+		genOverride2_6_0(pmt.Spec.Template.Spec.OverrideRef.Name, nodes, cluster.Registry, cluster.AirGap.Enabled)
 
 		data, err := yaml.Marshal(&pmt)
 		if err != nil {
 			log.Fatal(err)
 		}
-		err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
+		err = os.WriteFile("resources/"+cluster.MetaData.Name+"-"+nodesetName+"-PreprovisionedMachineTemplate.yaml", data, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}

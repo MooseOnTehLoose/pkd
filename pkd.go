@@ -23,7 +23,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const pkdVersion = "v1.0.2-dkp2.2.2"
+const pkdVersion = "v1.0.3-dkp2.6.0"
+
+var dkpVersion = ""
 
 func main() {
 
@@ -88,15 +90,27 @@ func up(modifier string) {
 	fmt.Printf("Created resources directory\n")
 	os.MkdirAll("overrides", os.ModePerm)
 	fmt.Printf("Created overrides directory\n")
+	os.MkdirAll("dkpBinaries", os.ModePerm)
+	fmt.Printf("Created dkp storage directory\n")
 
 	//people tend to forget to delete their bootstrap clusters
 	//we should probably ask before deleting in a future release
 	cluster := loadCluster()
 	fmt.Printf("Cluster YAML loaded into PKD\n")
 
+	//check if dkp version is present
+	if !fileExists(cluster.MetaData.DKPversion) {
+
+		fmt.Println("DKP Version " + cluster.MetaData.DKPversion + " not detected! Exiting!")
+		return
+	} else {
+		dkpVersion = strings.Replace(cluster.MetaData.DKPversion, ".", "_", -1)
+
+	}
 	//create inventory.yaml
 	if cluster.AirGap.Enabled {
-		generateInventory(cluster)
+
+		generateInventory2_6_0(cluster)
 		fmt.Println("Copying ssh key defined in cluster.yaml to kib directory")
 		copy(cluster.MetaData.SshPrivateKey, "kib/"+cluster.MetaData.SshPrivateKey)
 		seedRegistry(cluster.Registry.Host, cluster.Registry.Username, cluster.Registry.Password, cluster.MetaData.DKPversion)
@@ -184,13 +198,13 @@ func up(modifier string) {
 
 	}
 
-	generateCapiCluster(cluster)
-	generateCalicoConfigMap(cluster)
-	generateKubeadmControlPlane(cluster)
-	generateControlPlanePreprovisionedMachineTemplate(cluster)
-	generatePreprovisionedMachineTemplate(cluster)
-	generateKubeadmConfigTemplate(cluster)
-	generateMachineDeployment(cluster)
+	generateCapiCluster2_6_0(cluster)
+	generateCalicoConfigMap2_6_0(cluster)
+	generateKubeadmControlPlane2_6_0(cluster)
+	generateControlPlanePreprovisionedMachineTemplate2_6_0(cluster)
+	generatePreprovisionedMachineTemplate2_6_0(cluster)
+	generateKubeadmConfigTemplate2_6_0(cluster)
+	generateMachineDeployment2_6_0(cluster)
 
 	fmt.Printf("Generated all Custom Resources for NodePools\n")
 
@@ -252,7 +266,7 @@ func up(modifier string) {
 	mergeKubeconfig(cluster.MetaData.Name)
 	fmt.Printf("Merged the Kubeconfig\n")
 
-	generateMlbConfigMap(cluster)
+	generateMlbConfigMap2_6_0(cluster)
 	fmt.Printf("Applied Metal-LB ConfigMap\n\n")
 
 	if cluster.AirGap.Enabled {
@@ -268,106 +282,8 @@ func up(modifier string) {
 	}
 }
 
-func genCPPI(mdata MetaData, cplane NodePool) {
-
-	//initialize the array
-	hosts := make([]map[string]string, len(cplane.Hosts))
-	index := 0
-	//create the array of hosts
-	for _, ip := range cplane.Hosts {
-		hosts[index] = map[string]string{"address": ip}
-		index++
-	}
-
-	ppi := map[string]interface{}{
-		"apiVersion": "infrastructure.cluster.konvoy.d2iq.io/v1alpha1",
-		"kind":       "PreprovisionedInventory",
-		"metadata": map[string]interface{}{
-			"name":      mdata.Name + "-control-plane",
-			"namespace": "default",
-			"labels": map[string]string{
-				"cluster.x-k8s.io/cluster-name":    mdata.Name,
-				"clusterctl.cluster.x-k8s.io/move": "",
-			},
-		},
-		"spec": map[string]interface{}{
-			"hosts": hosts,
-			"sshConfig": map[string]interface{}{
-				"port": 22,
-				"user": mdata.SshUser,
-				"privateKeyRef": map[string]string{
-					"name":      mdata.Name + "-ssh-key",
-					"namespace": "default",
-				},
-			},
-		},
-	}
-
-	data, err := yaml.Marshal(&ppi)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err2 := ioutil.WriteFile("resources/"+mdata.Name+"-control-plane-PreprovisionedInventory.yaml", data, 0644)
-
-	if err2 != nil {
-
-		log.Fatal(err2)
-	}
-}
-
-func genPPI(mdata MetaData, npool NodePool, nodesetName string) {
-
-	//initialize the array
-	hosts := make([]map[string]string, len(npool.Hosts))
-	index := 0
-	//create the array of hosts
-	for _, ip := range npool.Hosts {
-		hosts[index] = map[string]string{"address": ip}
-		index++
-	}
-
-	ppi := map[string]interface{}{
-		"apiVersion": "infrastructure.cluster.konvoy.d2iq.io/v1alpha1",
-		"kind":       "PreprovisionedInventory",
-		"metadata": map[string]interface{}{
-			"name":      mdata.Name + "-" + nodesetName,
-			"namespace": "default",
-			"labels": map[string]string{
-				"cluster.x-k8s.io/cluster-name":    mdata.Name,
-				"clusterctl.cluster.x-k8s.io/move": "",
-			},
-		},
-		"spec": map[string]interface{}{
-			"hosts": hosts,
-			"sshConfig": map[string]interface{}{
-				"port": 22,
-				"user": mdata.SshUser,
-				"privateKeyRef": map[string]string{
-					"name":      mdata.Name + "-ssh-key",
-					"namespace": "default",
-				},
-			},
-		},
-	}
-
-	data, err := yaml.Marshal(&ppi)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err2 := ioutil.WriteFile("resources/"+mdata.Name+"-"+nodesetName+"-PreprovisionedInventory.yaml", data, 0644)
-
-	if err2 != nil {
-
-		log.Fatal(err2)
-	}
-}
-
 func loadCluster() pkdCluster {
-	clusterYaml, err := ioutil.ReadFile("cluster.yaml")
+	clusterYaml, err := os.ReadFile("cluster.yaml")
 
 	if err != nil {
 
@@ -398,8 +314,8 @@ func initYaml() {
 		Controlplane: NodePool{},
 		NodePools:    map[string]NodePool{},
 	}
-	exampleCluster.MetaData.DKPversion = "v2.2.0"
-	exampleCluster.MetaData.KIBVersion = "v1.17.2"
+	exampleCluster.MetaData.DKPversion = "v2.6.0"
+	exampleCluster.MetaData.KIBVersion = "v2.5.0"
 	exampleCluster.MetaData.Name = "demo-cluster"
 	exampleCluster.MetaData.SshUser = "user"
 	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
@@ -450,7 +366,7 @@ func initYaml() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = ioutil.WriteFile("cluster.yaml", file, 0644)
+	err = os.WriteFile("cluster.yaml", file, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1149,4 +1065,30 @@ func loadBootstrapImage(version string) {
 		log.Fatal(err)
 	}
 
+}
+
+// dkp binaries are stored in /dkp/dkp_version/
+// example folder looks like: /dkp/dkp_v2.6.0_linux_amd64/dkp
+func fileExists(version string) bool {
+	var src = "dkpBinaries/dkp_" + version + "_linux_amd64/dkp"
+	if _, err := os.Stat(src); err == nil {
+		// path/to/whatever exists so write it to the same dir as pkd
+
+		input, err := os.ReadFile(src)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		err = os.WriteFile("dkp", input, 0644)
+		if err != nil {
+			fmt.Println("Error creating DKP binary in working dir")
+			fmt.Println(err)
+			return false
+		}
+
+		return true
+	} else {
+		return false
+	}
 }

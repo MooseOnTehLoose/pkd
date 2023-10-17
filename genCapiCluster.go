@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateCapiCluster(cluster pkdCluster) {
+func generateCapiCluster2_6_0(cluster pkdCluster) {
 
 	capppCluster := capiCluster{
 		APIVersion: "",

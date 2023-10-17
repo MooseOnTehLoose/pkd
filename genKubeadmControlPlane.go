@@ -1,15 +1,15 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
+	"os"
 	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
 
-//if 1 CP use alternate structure, otherwise just generate from defaults
-func generateKubeadmControlPlane(cluster pkdCluster) {
+// if 1 CP use alternate structure, otherwise just generate from defaults
+func generateKubeadmControlPlane2_6_0(cluster pkdCluster) {
 	controlPlaneReplicas := strconv.Itoa(len(cluster.Controlplane.Hosts))
 	kcp := KubeadmControlPlane{}
 	kcp.APIVersion = "controlplane.cluster.x-k8s.io/v1beta1"
@@ -67,7 +67,7 @@ func generateKubeadmControlPlane(cluster pkdCluster) {
 	kcp.Spec.MachineTemplate.InfrastructureRef.Kind = "PreprovisionedMachineTemplate"
 	kcp.Spec.MachineTemplate.InfrastructureRef.Name = cluster.MetaData.Name + "-control-plane"
 	kcp.Spec.MachineTemplate.InfrastructureRef.Namespace = "default"
-	kcp.Spec.Version = "v1.22.8"
+	kcp.Spec.Version = "v1.26.6"
 
 	if controlPlaneReplicas == "1" {
 		kcp.Spec.Replicas = 1
@@ -213,7 +213,7 @@ func generateKubeadmControlPlane(cluster pkdCluster) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = ioutil.WriteFile("resources/"+cluster.MetaData.Name+"-control-plane-KubeadmControlPlane.yaml", data, 0644)
+	err = os.WriteFile("resources/"+cluster.MetaData.Name+"-control-plane-KubeadmControlPlane.yaml", data, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateKubeadmConfigTemplate(cluster pkdCluster) {
+func generateKubeadmConfigTemplate2_6_0(cluster pkdCluster) {
 	for nodesetName := range cluster.NodePools {
 
 		kctStr1 := "#!/bin/bash\n" +

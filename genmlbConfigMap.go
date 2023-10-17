@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateMlbConfigMap(cluster pkdCluster) {
+func generateMlbConfigMap2_6_0(cluster pkdCluster) {
 
 	mlb := mlbConfigMap{}
 	mlb.APIVersion = "v1"

@@ -7,7 +7,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func generateCalicoConfigMap(cluster pkdCluster) {
+func generateCalicoConfigMap2_6_0(cluster pkdCluster) {
 
 	customResources :=
 		"apiVersion: operator.tigera.io/v1\n" +
