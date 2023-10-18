@@ -325,7 +325,6 @@ func initYaml() {
 		NodePools:    map[string]NodePool{},
 	}
 	exampleCluster.MetaData.DKPversion = "v2.6.0"
-	exampleCluster.MetaData.KIBVersion = "v2.5.0"
 	exampleCluster.MetaData.Name = "demo-cluster"
 	exampleCluster.MetaData.SshUser = "user"
 	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
