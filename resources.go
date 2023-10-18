@@ -21,7 +21,6 @@ type AirGap struct {
 }
 type MetaData struct {
 	DKPversion          string `yaml:"dkpversion"`
-	KIBVersion          string `yaml:"kibversion"`
 	Name                string `yaml:"name"`
 	SshUser             string `yaml:"sshuser"`
 	SshPrivateKey       string `yaml:"sshprivatekey"`

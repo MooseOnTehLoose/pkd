@@ -91,14 +91,15 @@ func up(modifier string) {
 	fmt.Printf("Cluster YAML loaded into PKD\n")
 
 	//check if dkp version is present
-	if fileExists("dkp") {
+	if _, err := os.Stat("dkp"); err == nil {
 		//get the version of DKP and compare to cluster info
-		cmd := exec.Command("./dkp", "version", "|", "grep", "version")
+		cmd := exec.Command("./dkp", "version")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			log.Fatal(err)
 		}
-		version := string(output[5:])
+		lines := bytes.Split(output, []byte("\n"))
+		version := string(lines[1][5:])
 		if version == cluster.MetaData.DKPversion {
 			fmt.Println("DKP Version " + version + " detected! Continuing.")
 		} else {
@@ -390,7 +391,6 @@ func initAGYaml() {
 		NodePools:    map[string]NodePool{},
 	}
 	exampleCluster.MetaData.DKPversion = "v2.6.0"
-	exampleCluster.MetaData.KIBVersion = "v2.5.0"
 	exampleCluster.MetaData.Name = "demo-cluster"
 	exampleCluster.MetaData.SshUser = "user"
 	exampleCluster.MetaData.SshPrivateKey = "id_rsa"
@@ -928,30 +928,4 @@ func loadBootstrapImage(version string) {
 		log.Fatal(err)
 	}
 
-}
-
-// dkp binaries are stored in /dkp/dkp_version/
-// example folder looks like: /dkp/dkp_v2.6.0_linux_amd64/dkp
-func fileExists(version string) bool {
-	var src = "dkpBinaries/dkp_" + version + "_linux_amd64/dkp"
-	if _, err := os.Stat(src); err == nil {
-		// path/to/whatever exists so write it to the same dir as pkd
-
-		input, err := os.ReadFile(src)
-		if err != nil {
-			fmt.Println(err)
-			return false
-		}
-
-		err = os.WriteFile("dkp", input, 0644)
-		if err != nil {
-			fmt.Println("Error creating DKP binary in working dir")
-			fmt.Println(err)
-			return false
-		}
-
-		return true
-	} else {
-		return false
-	}
 }
