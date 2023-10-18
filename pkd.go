@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +22,7 @@ import (
 )
 
 const pkdVersion = "v1.0.3-dkp2.6.0"
+const bundleDir = "dkp-air-gapped-bundle_v2.6.0_linux_amd64/dkp-v2.6.0/"
 
 func main() {
 
@@ -40,12 +40,6 @@ func main() {
 			} else {
 				fmt.Println("Generating cluster.yaml")
 				initYaml()
-			}
-		case arg1 == "airgap":
-			fmt.Println("Downloading all Air Gap Resources")
-			err := createAirGapBundle(loadCluster())
-			if err != nil {
-				log.Fatal(err)
 			}
 		//up
 		case arg1 == "up":
@@ -117,12 +111,24 @@ func up(modifier string) {
 	}
 
 	//create inventory.yaml for airgap clusters
-	//we no longer use a separate kib as of DKP 2.5, it is part of the "everything" airgap bundle
+	//we no longer use a separate kib as of DKP 2.4.0, it is part of the "everything" airgap bundle
 	if cluster.AirGap.Enabled {
+
+		//verify presence of airgap bundle
+		// dkp-air-gapped-bundle_v2.6.0_linux_amd64/dkp-v2.6.0/kib
+		fmt.Println("Please ensure DKP Airgap Bundle is unzipped to current directory")
+
+		if stat, err := os.Stat(bundleDir); err == nil && stat.IsDir() {
+			// path is a directory
+		} else {
+			fmt.Println("Could not detect Air Gap Bundle")
+			return
+		}
+
 		generateInventory(cluster)
 		fmt.Println("Ensure AirGap Bundle is in current directory before proceeding")
 		fmt.Println("Copying ssh key defined in cluster.yaml to kib directory")
-		copy(cluster.MetaData.SshPrivateKey, "kib/"+cluster.MetaData.SshPrivateKey)
+		copy(cluster.MetaData.SshPrivateKey, bundleDir+"kib/"+cluster.MetaData.SshPrivateKey)
 		seedRegistry(cluster.Registry.Host, cluster.Registry.Username, cluster.Registry.Password, cluster.MetaData.DKPversion)
 		seedHosts(cluster.AirGap.K8sVersion, cluster.AirGap.OsVersion, cluster.AirGap.ContainerdVersion, cluster.MetaData.DKPversion)
 		loadBootstrapImage(cluster.MetaData.DKPversion)
@@ -702,49 +708,6 @@ func pivotCluster(clusterName string, pivotTimeout string) {
 	}
 }
 
-// DKP 2.4.0 and up no longer use separate resources for airgap bundle
-func createAirGapBundle(cluster pkdCluster) error {
-
-	osversion := cluster.AirGap.OsVersion
-	k8sversion := cluster.AirGap.K8sVersion
-	dkpversion := cluster.MetaData.DKPversion
-	cdversion := cluster.AirGap.ContainerdVersion
-
-	if osversion == "" || k8sversion == "" || dkpversion == "" || cdversion == "" {
-		err := errors.New("you must set osversion, k8sversion, dkpversion and containerdversion in cluster.yaml")
-		return err
-	}
-
-	return nil
-}
-
-func downloadFile(url string, path string) {
-	fmt.Printf("Downloading: " + path + "\n")
-
-	req, _ := http.NewRequest("GET", url, nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	out, err := os.Create(path)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer out.Close()
-
-	bar := progressbar.DefaultBytes(
-		resp.ContentLength,
-		"downloading",
-	)
-	// Write the body to file
-	_, err = io.Copy(io.MultiWriter(out, bar), resp.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
 // used to create the final AirGap Bundle
 func compress(downloadpath string, version string) {
 
@@ -906,17 +869,19 @@ func seedRegistry(host string, user string, password string, version string) {
 	registryURL := strings.ReplaceAll(host, "https://", "")
 	registryURL = strings.ReplaceAll(registryURL, "http://", "")
 
+	//dkp-air-gapped-bundle_v2.6.0_linux_amd64/dkp-v2.6.0/container-images
+
 	fmt.Println("Pushing Konvoy Image Bundle to Registry")
 	// ./dkp push image-bundle --image-bundle konvoy-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
-	cmd := exec.Command("./dkp", "push", "image-bundle", "--image-bundle", "konvoy-image-bundle.tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
+	cmd := exec.Command("./dkp", "push", "image-bundle", "--image-bundle", bundleDir+"container-images/konvoy-image-bundle.tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Pushing Kommander Image Bundle to Registry")
-	// ./dkp push image-bundle --image-bundle kommander-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
-	cmd = exec.Command("./dkp", "push", "image-bundle", "--image-bundle", "kommander-image-bundle-"+version+".tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
+	// ./dkp push image-bundle --image-bundle "kommander-image-bundle.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
+	cmd = exec.Command("./dkp", "push", "image-bundle", "--image-bundle", bundleDir+"container-images/kommander-image-bundle-"+version+".tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
 	output, err = cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
@@ -924,7 +889,7 @@ func seedRegistry(host string, user string, password string, version string) {
 	}
 	fmt.Println("Pushing DKP Insights Image Bundle to Registry")
 	// ./dkp push image-bundle --image-bundle dkp-insights-image-bundle-v2.2.0.tar.gz --to-registry $DOCKER_REGISTRY_ADDRESS --to-registry-username testuser --to-registry-password
-	cmd = exec.Command("./dkp", "push", "image-bundle", "--image-bundle", "dkp-insights-image-bundle-"+version+".tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
+	cmd = exec.Command("./dkp", "push", "image-bundle", "--image-bundle", bundleDir+"container-images/dkp-insights-image-bundle-"+version+".tar.gz", "--to-registry", registryURL, "--to-registry-username", user, "--to-registry-password", password)
 	output, err = cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
@@ -937,42 +902,26 @@ func seedHosts(osVersion string, bundleOs string, cdVersion string, dkpVersion s
 
 	fmt.Println("Using Konvoy Image Builder to upload artifacts to hosts")
 
-	if dkpVersion == "v2.2.2" {
-
-		//	konvoy-image upload artifacts --container-images-dir=./artifacts/images/ \
-		//	--os-packages-bundle=./artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz \
-		//	--pip-packages-bundle=./artifacts/pip-packages.tar.gz \
-		//	--containerd-bundle=artifacts/containerd-1.4.13-d2iq.1-"$CONTAINERD_OS".tar.gz
-		cmd := exec.Command("./konvoy-image", "upload", "artifacts", "--container-images-dir=artifacts/images/",
-			"--os-packages-bundle=artifacts/"+osVersion+"_"+bundleOs+".tar.gz",
-			"--pip-packages-bundle=artifacts/pip-packages.tar.gz",
-			"--containerd-bundle=artifacts/containerd-1.4.13-d2iq.1-"+cdVersion+".tar.gz")
-		cmd.Dir = ("kib")
-		output, err := cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-
-	} else {
-
-		// ./konvoy-image upload artifacts --container-images-dir=./artifacts/images/ --os-packages-bundle=./artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz --pip-packages-bundle=./artifacts/pip-packages.tar.gz
-		cmd := exec.Command("./konvoy-image", "upload", "artifacts", "--container-images-dir=artifacts/images/",
-			"--os-packages-bundle=artifacts/"+osVersion+"_"+bundleOs+".tar.gz", "--pip-packages-bundle=artifacts/pip-packages.tar.gz")
-		cmd.Dir = ("kib")
-		output, err := cmd.CombinedOutput()
-		fmt.Println(string(output))
-		if err != nil {
-			log.Fatal(err)
-		}
-
+	//	konvoy-image upload artifacts --container-images-dir=./artifacts/images/ \
+	//	--os-packages-bundle=./artifacts/"$VERSION"_"$BUNDLE_OS".tar.gz \
+	//	--pip-packages-bundle=./artifacts/pip-packages.tar.gz \
+	//	--containerd-bundle=artifacts/containerd-1.4.13-d2iq.1-"$CONTAINERD_OS".tar.gz
+	cmd := exec.Command("./konvoy-image", "upload", "artifacts", "--container-images-dir=artifacts/images/",
+		"--os-packages-bundle=artifacts/"+osVersion+"_"+bundleOs+".tar.gz",
+		"--pip-packages-bundle=artifacts/pip-packages.tar.gz",
+		"--containerd-bundle=artifacts/containerd-1.4.13-d2iq.1-"+cdVersion+".tar.gz")
+	cmd.Dir = (bundleDir + "/kib")
+	output, err := cmd.CombinedOutput()
+	fmt.Println(string(output))
+	if err != nil {
+		log.Fatal(err)
 	}
 
 }
 func loadBootstrapImage(version string) {
 	fmt.Println("Loading the konvoy bootstrap docker image from file")
-	// docker load -i konvoy-bootstrap_v2.2.0.tar
-	cmd := exec.Command("docker", "load", "-i", "konvoy-bootstrap_"+version+".tar")
+	// docker load -i konvoy-bootstrap-image-v2.6.0.tar
+	cmd := exec.Command("docker", "load", "-i", bundleDir+"konvoy-bootstrap_image-"+version+".tar")
 	output, err := cmd.CombinedOutput()
 	fmt.Println(string(output))
 	if err != nil {
