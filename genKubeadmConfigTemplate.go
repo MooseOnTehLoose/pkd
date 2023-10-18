@@ -29,18 +29,18 @@ func generateKubeadmConfigTemplate(cluster pkdCluster) {
 		//containerd-apply-patches.sh
 		kctStr3 := "#!/bin/bash\n" +
 			"set -euo pipefail\n" +
-			"IFS=$'\n\t'\n" +
+			"IFS=$'\\n\\t'\n" +
 			"declare -r TOML_MERGE_IMAGE='ghcr.io/mesosphere/toml-merge:v0.2.0'\n" +
-			"if ! ctr --namespace k8s.io images check 'name==${TOML_MERGE_IMAGE}' | grep '${TOML_MERGE_IMAGE}' >/dev/null; then\n" +
-			"  ctr --namespace k8s.io images pull '${TOML_MERGE_IMAGE}'\n" +
+			"if ! ctr --namespace k8s.io images check \"name==${TOML_MERGE_IMAGE}\" | grep \"${TOML_MERGE_IMAGE}\" >/dev/null; then\n" +
+			"  ctr --namespace k8s.io images pull \"${TOML_MERGE_IMAGE}\"\n" +
 			"fi\n" +
 			"cleanup() {\n" +
-			"  ctr images unmount '${tmp_ctr_mount_dir}' || true\n" +
+			"  ctr images unmount \"${tmp_ctr_mount_dir}\" || true\n" +
 			"}\n" +
 			"trap 'cleanup' EXIT\n" +
-			"readonly tmp_ctr_mount_dir='$(mktemp -d)'\n" +
-			"ctr --namespace k8s.io images mount '${TOML_MERGE_IMAGE}' '${tmp_ctr_mount_dir}'\n" +
-			"'${tmp_ctr_mount_dir}/usr/local/bin/toml-merge' -i --patch-file '/etc/containerd/konvoy-conf.d/*.toml' /etc/containerd/config.toml\n"
+			"readonly tmp_ctr_mount_dir=\"$(mktemp -d)\"\n" +
+			"ctr --namespace k8s.io images mount \"${TOML_MERGE_IMAGE}\" \"${tmp_ctr_mount_dir}\"\n" +
+			"\"${tmp_ctr_mount_dir}/usr/local/bin/toml-merge\" -i --patch-file '/etc/containerd/konvoy-conf.d/*.toml' /etc/containerd/config.toml\n"
 
 		//restart-containerd-and-wait.sh
 		kctStr4 := "#!/bin/bash\nsystemctl restart containerd\n\nSECONDS=0\nuntil crictl info\ndo\n  if (( SECONDS > 60 ))\n  then\n     echo \"Containerd is not running. Giving up...\"\n     exit 1\n  fi\n  echo \"Containerd is not running yet. Waiting...\"\n  sleep 5\ndone"
@@ -48,20 +48,20 @@ func generateKubeadmConfigTemplate(cluster pkdCluster) {
 		//install-kubelet-credential-providers.sh
 		kctStr5 := "#!/bin/bash\n" +
 			"set -euo pipefail\n" +
-			"IFS=$'\n\t'\n" +
+			"IFS=$'\\n\\t'\n" +
 			"declare -r CREDENTIAL_PROVIDER_IMAGE='ghcr.io/mesosphere/dynamic-credential-provider:v0.2.0'\n" +
-			"if ! ctr --namespace k8s.io images check 'name==${CREDENTIAL_PROVIDER_IMAGE}' | grep '${CREDENTIAL_PROVIDER_IMAGE}' >/dev/null; then\n" +
-			"  ctr --namespace k8s.io images pull '${CREDENTIAL_PROVIDER_IMAGE}'\n" +
+			"if ! ctr --namespace k8s.io images check \"name==${CREDENTIAL_PROVIDER_IMAGE}\" | grep \"${CREDENTIAL_PROVIDER_IMAGE}\" >/dev/null; then\n" +
+			"  ctr --namespace k8s.io images pull \"${CREDENTIAL_PROVIDER_IMAGE}\"\n" +
 			"fi\n" +
 			"cleanup() {\n" +
-			"  ctr images unmount '${tmp_ctr_mount_dir}' || true\n" +
+			"  ctr images unmount \"${tmp_ctr_mount_dir}\" || true\n" +
 			"}\n" +
 			"trap 'cleanup' EXIT\n" +
-			"readonly tmp_ctr_mount_dir='$(mktemp -d)'\n" +
-			"export CREDENTIAL_PROVIDER_SOURCE_DIR='${tmp_ctr_mount_dir}/opt/image-credential-provider/bin/'\n" +
-			"export CREDENTIAL_PROVIDER_TARGET_DIR='/etc/kubernetes/image-credential-provider/'\n" +
-			"ctr --namespace k8s.io images mount '${CREDENTIAL_PROVIDER_IMAGE}' '${tmp_ctr_mount_dir}'\n" +
-			"'${tmp_ctr_mount_dir}/opt/image-credential-provider/bin/dynamic-credential-provider' install"
+			"readonly tmp_ctr_mount_dir=\"$(mktemp -d)\"\n" +
+			"export CREDENTIAL_PROVIDER_SOURCE_DIR=\"${tmp_ctr_mount_dir}/opt/image-credential-provider/bin/\"\n" +
+			"export CREDENTIAL_PROVIDER_TARGET_DIR=\"/etc/kubernetes/image-credential-provider/\"\n" +
+			"ctr --namespace k8s.io images mount \"${CREDENTIAL_PROVIDER_IMAGE}\" \"${tmp_ctr_mount_dir}\"\n" +
+			"\"${tmp_ctr_mount_dir}/opt/image-credential-provider/bin/dynamic-credential-provider\" install"
 
 		kct := KubeadmConfigTemplate{}
 		kct.APIVersion = "bootstrap.cluster.x-k8s.io/v1beta1"
